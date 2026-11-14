@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Blast Buster</string>
+    <color name="icon_bg">#B71C1C</color>
+    <color name="siren_red">#D32F2F</color>
+</resources>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Blast Buster launcher icon: a red alarm siren (dome + base) with sound
+     arcs on both sides. Drawn as a vector; 108x108 adaptive-icon foreground,
+     content kept inside the 66dp safe zone (centre 54,54). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- siren dome -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,60 A18,18 0 0 1 72,60 Z" />
+    <!-- siren base -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,60 L76,60 L76,72 Q76,76 72,76 L36,76 Q32,76 32,72 Z" />
+    <!-- dome light -->
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M50.5,46 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0 Z" />
+    <!-- sound arcs, left (inner + outer) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M31.5,47 A26,26 0 0 0 31.5,73" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M24.6,43 A34,34 0 0 0 24.6,77" />
+    <!-- sound arcs, right (inner + outer) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M76.5,47 A26,26 0 0 1 76.5,73" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M83.4,43 A34,34 0 0 1 83.4,77" />
+</vector>
