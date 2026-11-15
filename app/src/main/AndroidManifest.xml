@@ -13,6 +13,20 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- v1.1: ACCESS_NOTIFICATION_POLICY is what makes the app appear in
+         Settings > Apps > Special app access > Do Not Disturb access.
+         Without this declaration the list never shows the app. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- v1.1: top-edge overlay that eats the notification-shade pull-down
+         during a blast. Granted via Settings (Display over other apps). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- v1.1: fingerprint unlock on the red lockout screen (no-UI path). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <!-- v1.1: SIM-state watch (TelephonyManager listener + poll). -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- v1.1: voice trigger phrase listener (SpeechRecognizer). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
 
@@ -31,6 +45,30 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- v1.1: red lockout screen over the lock screen while blasting.
+             Excluded from recents so it cannot be swiped away there. -->
+        <activity
+            android:name=".LockoutActivity"
+            android:configChanges="orientation|screenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <!-- v1.1: device-admin component for lockNow() on trigger. -->
+        <receiver
+            android:name=".BlastAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".BlastService"

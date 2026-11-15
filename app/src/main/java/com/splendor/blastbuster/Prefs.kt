@@ -51,6 +51,26 @@ object Prefs {
     fun setBlasting(ctx: Context, v: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_BLASTING, v).apply()
 
+    const val DEFAULT_VOICE_PHRASE = "Blast Buster"
+
+    fun voicePhrase(ctx: Context): String =
+        (prefs(ctx).getString("voice_phrase", DEFAULT_VOICE_PHRASE)
+            ?: DEFAULT_VOICE_PHRASE).trim().ifEmpty { DEFAULT_VOICE_PHRASE }
+
+    fun setVoicePhrase(ctx: Context, v: String) =
+        prefs(ctx).edit().putString("voice_phrase", v.trim()).apply()
+
+    /**
+     * Voice trigger is OFF by default: it listens continuously (battery)
+     * and matches the phrase's WORDS, not the owner's voice — anyone saying
+     * the phrase near the phone can trigger the blast.
+     */
+    fun voiceTriggerEnabled(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("voice_enabled", false)
+
+    fun setVoiceTriggerEnabled(ctx: Context, v: Boolean) =
+        prefs(ctx).edit().putBoolean("voice_enabled", v).apply()
+
     /** True when [sender] is allowed to trigger. Empty list = anyone with the code. */
     fun isTrusted(ctx: Context, sender: String?): Boolean {
         val list = trustedNumbers(ctx)

@@ -4,15 +4,19 @@ package com.splendor.blastbuster
  * Pure PCM siren synthesis. No Android classes: the tone math is verifiable
  * on the JVM (see the sandbox test that compiles this file standalone).
  *
- * The siren is a smooth FM wail: the instantaneous frequency sweeps
- * 700 Hz -> 1400 Hz -> 700 Hz over one 1-second cycle. Frequency is a
- * raised cosine, so the phase is continuous AND its derivative matches at
- * the loop point — no clicks, unlike an abrupt two-tone switch (whose
- * slope flips at the switch and at the loop).
+ * v1.1: the siren is still a smooth FM wail (instantaneous frequency sweeps
+ * 700 Hz -> 1400 Hz -> 700 Hz over one 1-second cycle), but the waveform
+ * is no longer a pure sine. Odd harmonics are added (3rd at 0.35, 5th at
+ * 0.18), normalised by the true maximum of the sum (0.9406, measured):
+ * a square-ish wave is perceptually louder than a sine at the same peak,
+ * because the ear hears the extra harmonics. A 3 ms Hann fade at both ends
+ * makes the loop sample-exact (both ends 0 with zero slope) — without it
+ * the steep harmonic slope leaves a step at the loop point, a click once
+ * a second. Absolute loudness is still capped by the phone's single
+ * speaker.
  *
  * phase(t) = 2π * (fMid*t - fAmp/(2π) * sin(2π*t)), with fMid = 1050 Hz
- * and fAmp = 350 Hz. At t = 0 and t = 1 the phase is a whole number of
- * cycles (1050), so the loop is sample-exact.
+ * and fAmp = 350 Hz.
  */
 object Siren {
     const val SAMPLE_RATE = 22050
@@ -26,11 +30,30 @@ object Siren {
         val out = ShortArray(total)
         val fMid = (LOW_HZ + HIGH_HZ) / 2.0
         val fAmp = (HIGH_HZ - LOW_HZ) / 2.0
+        // Normalisation: the true maximum of
+        // sin(p) + 0.35 sin(3p) + 0.18 sin(5p) over p is 0.9406 (measured by
+        // numerical scan), not the 1.53 sum of amplitudes — the three terms
+        // peak at different phases. Dividing by the true max puts the peak
+        // at 0.95 of full scale.
+        val norm = 0.9406
+        // 3 ms Hann fade at both ends: the loop point is sample-exact
+        // (both ends 0 with zero slope), so the AudioTrack loop has no
+        // click. The fade is 6 ms per second of output — inaudible as a
+        // gap, and far better than the step the raw wave leaves at the loop.
+        val fade = (SAMPLE_RATE * 0.003).toInt() // 66 samples
         for (i in out.indices) {
             val t = i.toDouble() / SAMPLE_RATE
             val phase = 2.0 * Math.PI *
                 (fMid * t - fAmp / (2.0 * Math.PI) * Math.sin(2.0 * Math.PI * t))
-            out[i] = (Math.sin(phase) * 0.9 * Short.MAX_VALUE).toInt().toShort()
+            val y = (Math.sin(phase) + 0.35 * Math.sin(3.0 * phase) +
+                0.18 * Math.sin(5.0 * phase)) / norm
+            val w = when {
+                i < fade -> 0.5 * (1.0 - Math.cos(Math.PI * i / fade))
+                i >= total - fade ->
+                    0.5 * (1.0 - Math.cos(Math.PI * (total - 1 - i) / fade))
+                else -> 1.0
+            }
+            out[i] = (y * w * 0.95 * Short.MAX_VALUE).toInt().toShort()
         }
         return out
     }
