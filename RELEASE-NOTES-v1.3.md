@@ -2,8 +2,10 @@
 
 **Version:** 1.3 (`versionCode 4`), package `com.splendor.blastbuster`.
 **Baseline:** v1.2, remote HEAD `e8fc485a`.
-**Status:** integrated in the sandbox — JVM suite green, no Gradle build,
-no signing, no push yet. The blast core is untouched in this release.
+**Status:** built, signed and pushed — JVM suite 533 passed / 0 failed /
+3 skipped (environmental), Gradle release build SUCCESSFUL with zero
+compiler warnings, APK signed with the permanent release key, commit
+`8ce487a7` on GitHub main. The blast core is untouched in this release.
 
 > ⚠️ **ONE-LAST-UNINSTALL — read this first.** v1.2 was signed with a
 > debug key that is now lost, so v1.3 **cannot install on top of v1.2**.
