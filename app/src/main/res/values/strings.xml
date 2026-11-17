@@ -3,4 +3,38 @@
     <string name="app_name">Blast Buster</string>
     <color name="icon_bg">#B71C1C</color>
     <color name="siren_red">#D32F2F</color>
+
+    <!-- v1.2 hub (DESIGN.md §6.1) -->
+    <string name="hub_blast">Blast</string>
+    <string name="hub_ram">RAM</string>
+    <string name="hub_dnd">Do Not Disturb</string>
+    <string name="hub_network">Network</string>
+    <string name="hub_bridge">Muse bridge</string>
+    <string name="hub_setup">Setup &amp; grants</string>
+
+    <!-- v1.2 honest-limit copy (DESIGN.md §5, §6.4) -->
+    <string name="ram_limit">This phone has 4 GB of RAM. No app can add more. Killing a background app frees RAM now; badly behaved apps will restart and eat it again. If RAM is always full, the fix is fewer heavy apps, not a stronger killer.</string>
+    <string name="net_limit">No app can create signal that isn\'t there. A flick or a mode lock can make the phone re-attach to a tower that exists — it cannot invent coverage. If both SIMs show no service, the problem is the towers, not the phone.</string>
+    <string name="dns_limit">The DNS pipe blocks junk domains before they load and can be faster than the carrier\'s DNS. It does not make the connection faster, and the first query for a domain is slower. Queries to the chosen upstream are unencrypted in v1.2.</string>
+    <string name="bridge_limit">Muse learns about a blast, a SIM pull, or a rogue app only on the next poll. Worst case, the wait is the poll interval. There is no live push in v1.2.</string>
+    <!-- DESIGN.md §3.5, verbatim -->
+    <string name="no_adb_needed">A user who never touches ADB gets a complete v1.2 except one-tap airplane flick and one-tap network-mode lock.</string>
+
+    <!-- Bridge screen (DESIGN.md §2.3, §5.5) -->
+    <string name="bridge_title">Muse bridge</string>
+    <string name="bridge_on">Turn bridge on</string>
+    <string name="bridge_off">Turn bridge off</string>
+    <string name="bridge_show_token">Show token</string>
+    <string name="bridge_hide_token">Hide token</string>
+    <string name="bridge_copy_token">Copy token</string>
+    <string name="bridge_regenerate_token">Regenerate token</string>
+    <string name="bridge_tailscale_install">Install Tailscale (Play Store)</string>
+    <string name="bridge_no_events">No bridge events yet.</string>
+
+    <!-- Setup / grant rows (DESIGN.md §3.3) -->
+    <string name="setup_adb_title">One-time ADB setup (optional)</string>
+    <string name="setup_adb_body">Two features need a one-time grant from a computer: one-tap airplane flick and one-tap network-mode lock. Without them the app shows guided manual steps instead. The grants survive reboots and app updates, and are lost on uninstall — the app re-checks on every launch and will show “re-run ADB setup” if a grant is gone.</string>
+    <string name="grant_write_secure">WRITE_SECURE_SETTINGS — airplane flick + network-mode lock</string>
+    <string name="grant_dump">DUMP — extra diagnostics (experimental; may unlock nothing usable)</string>
+    <string name="grant_read_logs">READ_LOGS — DND culprit detection from the system log (experimental)</string>
 </resources>

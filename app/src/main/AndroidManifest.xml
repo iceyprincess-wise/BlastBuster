@@ -28,6 +28,28 @@
     <!-- v1.1: voice trigger phrase listener (SpeechRecognizer). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- v1.2 (DESIGN.md §3.2): RAM kill is a normal permission, granted at
+         install — no prompt, no ADB. NetWatch state permissions are normal
+         too. INTERNET is declared for the DNS pipe's upstream queries (the
+         bridge server itself is local sockets). -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- v1.2 ADB-only grants (DESIGN.md §3.2–3.4): declared so `pm grant`
+         can work. All three are optional — every feature degrades to a
+         no-ADB fallback when they are missing. DUMP and READ_LOGS are
+         experimental tiers; the app must prove on-device that they unlock
+         anything before presenting them as required. -->
+    <uses-permission android:name="android.permission.DUMP" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_LOGS" />
+    <!-- NOTE: BIND_VPN_SERVICE is NOT a <uses-permission> — it is the
+         DnsVpnService's android:permission attribute below. Declaring it
+         here would be wrong. -->
+
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
 
     <application
@@ -35,7 +57,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Blast Buster"
-        android:theme="@android:style/Theme.Material.Light">
+        android:theme="@style/Theme.BlastBuster.Dark">
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize"
@@ -47,7 +69,9 @@
         </activity>
 
         <!-- v1.1: red lockout screen over the lock screen while blasting.
-             Excluded from recents so it cannot be swiped away there. -->
+             Excluded from recents so it cannot be swiped away there.
+             NOT restyled in v1.2 — it stays red, full-screen,
+             fingerprint-only (DESIGN.md §6.3). -->
         <activity
             android:name=".LockoutActivity"
             android:configChanges="orientation|screenSize"
@@ -56,6 +80,32 @@
             android:launchMode="singleTop"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
+
+        <!-- v1.2 companion screens (DESIGN.md §4.7). All exported=false:
+             they are opened only from inside the app. RamActivity /
+             DndActivity / NetActivity / DnsActivity are owned by agents
+             A/B; their classes land at merge — the entries are declared
+             here now so the merge is manifest-clean. -->
+        <activity
+            android:name=".ram.RamActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false" />
+        <activity
+            android:name=".dnd.DndActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false" />
+        <activity
+            android:name=".net.NetActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false" />
+        <activity
+            android:name=".dns.DnsActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false" />
+        <activity
+            android:name=".bridge.BridgeActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false" />
 
         <!-- v1.1: device-admin component for lockNow() on trigger. -->
         <receiver
@@ -74,6 +124,39 @@
             android:name=".BlastService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
+
+        <!-- v1.2: companion host (Agent A). Foreground, specialUse like
+             BlastService — same declared type, per DESIGN.md §3.2 P17. -->
+        <service
+            android:name=".companion.CompanionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
+        <!-- v1.2: local DNS pipe (Agent B). The android:permission is what
+             makes this a VpnService; the intent-filter is the VpnService
+             action. Fail-open by design — a dead filter never black-holes
+             the phone (DESIGN.md §5.4). MERGED: foregroundServiceType
+             specialUse declared (the service starts foreground with
+             FOREGROUND_SERVICE_TYPE_SPECIAL_USE). -->
+        <service
+            android:name=".dns.DnsVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <!-- v1.2: DND change observation (Agent A). -->
+        <service
+            android:name=".dnd.DndListener"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".SmsReceiver"

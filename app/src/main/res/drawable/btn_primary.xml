@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Primary action button (DESIGN.md §6.2): blue fill, white text, ripple, 12dp radius. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/bb_accent2" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</ripple>

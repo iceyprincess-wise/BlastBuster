@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark premium theme (DESIGN.md §6.2). Platform Material only —
+     no AndroidX. The lockout screen is NOT restyled: it keeps its own
+     red look (LockoutActivity does not use this theme). -->
+<resources>
+    <style name="Theme.BlastBuster.Dark" parent="@android:style/Theme.Material">
+        <item name="android:windowBackground">@color/bb_bg</item>
+        <item name="android:textColorPrimary">@color/bb_text</item>
+        <item name="android:textColorSecondary">@color/bb_text2</item>
+        <item name="android:colorPrimary">@color/bb_accent2</item>
+        <item name="android:colorAccent">@color/bb_accent2</item>
+        <item name="android:navigationBarColor">@color/bb_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

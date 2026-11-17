@@ -33,6 +33,8 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.telephony.SmsManager
 import android.util.Log
+import com.splendor.blastbuster.companion.BlastGate
+import com.splendor.blastbuster.companion.EventLog
 import java.util.Locale
 
 /**
@@ -177,6 +179,13 @@ class BlastService : Service() {
         blasting = true
         escalated = false
         Prefs.setBlasting(this, true)
+        // v1.2 (Agent A addition 1/2): tell the companion modules a blast
+        // started so they suspend, and log it. No sender number or GPS is
+        // ever written to the log.
+        sendBroadcast(
+            Intent(BlastGate.ACTION_BLAST_STARTED).setPackage(packageName)
+        )
+        EventLog.append(this, "blast", "BLAST_STARTED", "Blast started.")
 
         // Foreground FIRST: startForegroundService gives the service only a
         // few seconds to call startForeground, so do it before any setup.
@@ -396,9 +405,19 @@ class BlastService : Service() {
     }
 
     private fun stopBlastingInternal() {
+        // v1.2 (Agent A addition 2/2): only a real transition out of a
+        // blast broadcasts / logs — onDestroy also calls this when the
+        // service was never blasting, and that must stay silent.
+        val wasBlasting = blasting
         blasting = false
         escalated = false
         Prefs.setBlasting(this, false)
+        if (wasBlasting) {
+            sendBroadcast(
+                Intent(BlastGate.ACTION_BLAST_STOPPED).setPackage(packageName)
+            )
+            EventLog.append(this, "blast", "BLAST_STOPPED", "Blast stopped.")
+        }
         torchStop = true
         try {
             torchThread?.interrupt()
