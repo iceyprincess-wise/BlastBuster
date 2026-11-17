@@ -175,6 +175,11 @@ class DnsVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // A manual stop is not a yield: clear a stale conflict
+                // flag so the DNS screen does not keep showing
+                // "another VPN is active" after the user stopped the
+                // pipe on purpose (v1.3 fix).
+                conflictWithVpn = false
                 stopTunnel()
                 stopSelf()
                 return START_NOT_STICKY

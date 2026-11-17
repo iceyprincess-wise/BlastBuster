@@ -103,21 +103,24 @@ object NetTools {
 
     private fun runFlick(ctx: Context, verifySignal: (() -> Boolean)?): FlickOutcome {
         if (blastBlocked(ctx, "net.flick")) {
-            return FlickOutcome(FlickResult.BLOCKED_BLAST, "Blast active — flick refused.")
+            return FlickOutcome(
+                FlickResult.BLOCKED_BLAST,
+                NetOutcomeText.flickMessage(FlickResult.BLOCKED_BLAST.name)
+            )
         }
         val sinceLast = System.currentTimeMillis() - Prefs.lastFlickAt(ctx)
         if (sinceLast < Prefs.FLICK_COOLDOWN_MS) {
+            val remaining = Prefs.FLICK_COOLDOWN_MS - sinceLast
             return FlickOutcome(
                 FlickResult.COOLDOWN,
-                "Flick cooling down — wait before trying again.",
-                Prefs.FLICK_COOLDOWN_MS - sinceLast
+                NetOutcomeText.flickMessage(FlickResult.COOLDOWN.name, remaining),
+                remaining
             )
         }
         if (!hasSecureSettingsGrant(ctx)) {
             return FlickOutcome(
                 FlickResult.NEEDS_ADB,
-                "One-tap flick needs the ADB grant WRITE_SECURE_SETTINGS. " +
-                    "Use the guided steps instead (airplane settings: on, wait 8 s, off)."
+                NetOutcomeText.flickMessage(FlickResult.NEEDS_ADB.name)
             )
         }
         return try {
@@ -128,21 +131,37 @@ object NetTools {
             EventLog.append(ctx, "net", "NET_FLICK", "Airplane flick done; verifying signal.")
             val restored = verifyAfterFlick(verifySignal)
             if (restored) {
-                FlickOutcome(FlickResult.OK_RESTORED, "Signal restored after flick.")
+                FlickOutcome(
+                    FlickResult.OK_RESTORED,
+                    NetOutcomeText.flickMessage(FlickResult.OK_RESTORED.name)
+                )
             } else {
                 FlickOutcome(
                     FlickResult.OK_NO_IMPROVEMENT,
-                    "Flick done, but no signal improvement in 60 s — " +
-                        "the problem is likely the towers, not the phone."
+                    NetOutcomeText.flickMessage(FlickResult.OK_NO_IMPROVEMENT.name)
                 )
             }
         } catch (e: SecurityException) {
-            FlickOutcome(FlickResult.FAILED, "System refused the airplane write: ${e.message}")
+            FlickOutcome(
+                FlickResult.FAILED,
+                NetOutcomeText.flickMessage(
+                    FlickResult.FAILED.name,
+                    cause = "System refused the airplane write: ${e.message}"
+                )
+            )
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            FlickOutcome(FlickResult.FAILED, "Flick interrupted.")
+            FlickOutcome(
+                FlickResult.FAILED,
+                NetOutcomeText.flickMessage(FlickResult.FAILED.name, cause = "Flick interrupted.")
+            )
         } catch (e: Exception) {
-            FlickOutcome(FlickResult.FAILED, "Flick failed: ${e.message}")
+            FlickOutcome(
+                FlickResult.FAILED,
+                NetOutcomeText.flickMessage(
+                    FlickResult.FAILED.name, cause = "Flick failed: ${e.message}"
+                )
+            )
         }
     }
 
@@ -212,15 +231,16 @@ object NetTools {
         mode: NetMode
     ): ModeOutcome {
         if (blastBlocked(ctx, "net.mode")) {
-            return ModeOutcome(ModeResult.BLOCKED_BLAST, "Blast active — mode change refused.")
+            return ModeOutcome(
+                ModeResult.BLOCKED_BLAST,
+                NetOutcomeText.modeMessage(ModeResult.BLOCKED_BLAST.name)
+            )
         }
         Prefs.setPreferredMode(ctx, subscriptionId, mode)
         if (!hasSecureSettingsGrant(ctx)) {
             return ModeOutcome(
                 ModeResult.NEEDS_ADB,
-                "One-tap mode lock needs the ADB grant WRITE_SECURE_SETTINGS. " +
-                    "Your choice (${mode.displayName}) is saved; set it in the SIM's " +
-                    "mobile-network settings and the app will check the live type."
+                NetOutcomeText.modeMessage(ModeResult.NEEDS_ADB.name, mode.displayName)
             )
         }
         return try {
@@ -240,7 +260,10 @@ object NetTools {
             if (readBack != value) {
                 return ModeOutcome(
                     ModeResult.FAILED,
-                    "Mode write did not stick (read back $readBack, wrote $value)."
+                    NetOutcomeText.modeMessage(
+                        ModeResult.FAILED.name,
+                        extra = "Mode write did not stick (read back $readBack, wrote $value)."
+                    )
                 )
             }
             Thread.sleep(30_000L)
@@ -255,7 +278,10 @@ object NetTools {
                     ctx, "net", "NET_MODE",
                     "Mode lock applied: ${mode.displayName} (live type $live)."
                 )
-                ModeOutcome(ModeResult.APPLIED, "Mode lock applied: ${mode.displayName}.")
+                ModeOutcome(
+                    ModeResult.APPLIED,
+                    NetOutcomeText.modeMessage(ModeResult.APPLIED.name, mode.displayName)
+                )
             } else {
                 EventLog.append(
                     ctx, "net", "NET_MODE",
@@ -263,18 +289,36 @@ object NetTools {
                 )
                 ModeOutcome(
                     ModeResult.WRITE_OK_NOT_APPLIED,
-                    "The setting was written but the radio is not using it " +
-                        "(live type $live). HyperOS may be ignoring the write — " +
-                        "try the guided setting instead."
+                    NetOutcomeText.modeMessage(
+                        ModeResult.WRITE_OK_NOT_APPLIED.name,
+                        mode.displayName,
+                        "(live type $live)"
+                    )
                 )
             }
         } catch (e: SecurityException) {
-            ModeOutcome(ModeResult.FAILED, "System refused the mode write: ${e.message}")
+            ModeOutcome(
+                ModeResult.FAILED,
+                NetOutcomeText.modeMessage(
+                    ModeResult.FAILED.name,
+                    extra = "System refused the mode write: ${e.message}"
+                )
+            )
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            ModeOutcome(ModeResult.FAILED, "Mode change interrupted.")
+            ModeOutcome(
+                ModeResult.FAILED,
+                NetOutcomeText.modeMessage(
+                    ModeResult.FAILED.name, extra = "Mode change interrupted."
+                )
+            )
         } catch (e: Exception) {
-            ModeOutcome(ModeResult.FAILED, "Mode change failed: ${e.message}")
+            ModeOutcome(
+                ModeResult.FAILED,
+                NetOutcomeText.modeMessage(
+                    ModeResult.FAILED.name, extra = "Mode change failed: ${e.message}"
+                )
+            )
         }
     }
 

@@ -414,4 +414,11 @@ object Prefs {
     fun anyCompanionEnabled(ctx: Context): Boolean =
         ramEnabled(ctx) || dndEnabled(ctx) || netEnabled(ctx) ||
             dnsEnabled(ctx) || bridgeEnabled(ctx)
+
+    // --- Notifications capture (§v1.3; module owned by the notif agent) ---
+
+    /** Notification capture is OFF by default (needs notification access too). */
+    fun notifEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("notif_enabled", false)
+    fun setNotifEnabled(ctx: Context, v: Boolean) =
+        prefs(ctx).edit().putBoolean("notif_enabled", v).apply()
 }

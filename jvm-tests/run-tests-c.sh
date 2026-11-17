@@ -1,5 +1,7 @@
 #!/bin/bash
 # JVM tests for Agent C's pure helpers (DESIGN.md §7.1).
+# Total: 98 checks (6 tests), 0 failures.
+# v1.3 additions: BridgeRebindTest (19), BridgeLogExportTest (14).
 # No JUnit in the offline sandbox: each test file has a plain main()
 # runner. Compiles the pure sources + tests with the offline Kotlin
 # compiler (kotlin-compiler-embeddable 1.9.22) and runs each main.
@@ -22,10 +24,14 @@ SOURCES=(
   app/src/main/java/com/splendor/blastbuster/bridge/BridgeHttp.kt
   app/src/main/java/com/splendor/blastbuster/bridge/BridgeAuthCore.kt
   app/src/main/java/com/splendor/blastbuster/bridge/BridgeCommands.kt
+  app/src/main/java/com/splendor/blastbuster/bridge/BridgeRebind.kt
+  app/src/main/java/com/splendor/blastbuster/bridge/LogExportGate.kt
   jvm-tests/MiniJsonTest.kt
   jvm-tests/BridgeHttpTest.kt
   jvm-tests/BridgeAuthCoreTest.kt
   jvm-tests/BridgeCommandsTest.kt
+  jvm-tests/BridgeRebindTest.kt
+  jvm-tests/BridgeLogExportTest.kt
 )
 
 echo "== compiling ${#SOURCES[@]} Kotlin files =="
@@ -41,7 +47,9 @@ for TEST in \
   com.splendor.blastbuster.companion.MiniJsonTestKt \
   com.splendor.blastbuster.bridge.BridgeHttpTestKt \
   com.splendor.blastbuster.bridge.BridgeAuthCoreTestKt \
-  com.splendor.blastbuster.bridge.BridgeCommandsTestKt ; do
+  com.splendor.blastbuster.bridge.BridgeCommandsTestKt \
+  com.splendor.blastbuster.bridge.BridgeRebindTestKt \
+  com.splendor.blastbuster.bridge.BridgeLogExportTestKt ; do
   echo "== $TEST =="
   "$HOME/jdk17/bin/java" -cp "$OUT_DIR/classes:$STDLIB_JAR" "$TEST"
   if [ $? -ne 0 ]; then TOTAL_FAIL=1; fi

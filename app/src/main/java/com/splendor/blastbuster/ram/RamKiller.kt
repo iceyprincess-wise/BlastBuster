@@ -22,6 +22,14 @@ import com.splendor.blastbuster.companion.EventLog
  * foreground app cannot be killed this way, and badly behaved apps
  * restart themselves — the verify step reports that honestly instead of
  * claiming a kill that did not stick.
+ *
+ * Kill-verification logging: EVERY outcome of [kill] is written to the
+ * EventLog — RAM_KILL_SKIPPED (blast active), RAM_KILL_DENIED (denylist),
+ * RAM_KILL_COOLDOWN (1 h cooldown), RAM_KILL_FAILED (call threw, or the
+ * process was still running with the same pid after 5 s),
+ * RAM_KILL_KILLED, RAM_KILL_RESTARTED. No kill path completes silently:
+ * the hub button, the bridge `ram.kill` command and Elimination mode all
+ * funnel through [kill], so one fix here covers all three.
  */
 object RamKiller {
 
@@ -122,6 +130,10 @@ object RamKiller {
         val now = System.currentTimeMillis()
         val remaining = cooldownRemainingMs(Prefs.ramLastKillMs(appCtx, pkg), now)
         if (remaining > 0) {
+            EventLog.append(
+                appCtx, "ram", "RAM_KILL_COOLDOWN",
+                "Kill skipped for $pkg: on cooldown, ${remaining / 1000}s remaining (1 h)"
+            )
             onResult(
                 KillResult(
                     KillOutcome.COOLDOWN,
@@ -146,8 +158,17 @@ object RamKiller {
         Handler(Looper.getMainLooper()).postDelayed({
             val pidsAfter = runningPids(am, pkg)
             val result = when {
+                // Nothing was running before the kill: there was nothing
+                // to free. Report it honestly instead of claiming a kill.
+                pidsBefore.isEmpty() && pidsAfter.isEmpty() ->
+                    KillResult(KillOutcome.KILLED, "package was not running — nothing to free")
                 pidsAfter.isEmpty() ->
                     KillResult(KillOutcome.KILLED, "process gone after 5 s re-scan")
+                pidsBefore.isEmpty() ->
+                    KillResult(
+                        KillOutcome.RESTARTED,
+                        "package started after the kill call (was not running before)"
+                    )
                 pidsAfter != pidsBefore ->
                     KillResult(KillOutcome.RESTARTED, "package came back with new process(es)")
                 else ->

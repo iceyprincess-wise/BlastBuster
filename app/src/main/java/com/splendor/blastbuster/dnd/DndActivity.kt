@@ -211,6 +211,13 @@ class DndActivity : Activity() {
         Prefs.setDndScheduleJson(this, DndSchedule.encode(listOf(rule)))
         Toast.makeText(this, "Schedule saved.", Toast.LENGTH_SHORT).show()
         refreshState()
+        // Apply right now instead of waiting for the next 60 s tick —
+        // the saved schedule is what the guard reads, so a check now
+        // enforces it immediately when enforcement is on.
+        Thread({
+            dndGuard.checkOnce(this@DndActivity)
+            handler.post { refreshState() }
+        }, "BlastBuster-DndActivity").start()
     }
 
     private fun refreshState() {
@@ -222,12 +229,23 @@ class DndActivity : Activity() {
         val expected = DndSchedule.modeAt(
             rules, java.time.LocalDateTime.now()
         )
+        val readLogsGranted = DndCulprit.hasReadLogsGrant(this)
+        val tierText = DndCulprit.activeTierDescription(readLogsGranted, granted)
+        val fightText = if (dndGuard.isFightDetected()) {
+            val suspect = dndGuard.lastCulprit()?.let {
+                " Suspected app: ${it.packageName} (${it.label})."
+            } ?: " No culprit observed — see history."
+            "\nFight detected: the guard stopped re-applying after 3 re-applies in an hour.$suspect " +
+                "It tries again after the hour passes — you decide what to do."
+        } else ""
         stateView.text = "DND access: ${if (granted) "granted" else "NOT granted — open settings above"}\n" +
             "DND now: ${if (isDnd) "ON" else "OFF"}\n" +
             "Schedule wants: ${expected?.name ?: "nothing right now"}\n" +
             "Rules stored: ${rules.size}" +
             (if (rules.size > 1) " (editor shows the first)" else "") +
-            "\nEnforcement: ${if (Prefs.dndEnabled(this)) "on" else "off — turn it on with the switch on the DND tab in the hub"}"
+            "\nEnforcement: ${if (Prefs.dndEnabled(this)) "on" else "off — turn it on with the switch on the DND tab in the hub"}" +
+            "\nREAD_LOGS: ${if (readLogsGranted) "granted" else "not granted"}" +
+            "\n$tierText$fightText"
         historyView.removeAllViews()
         val events = try {
             EventLog.readTail(this, 100).filter { it.module == "dnd" }.take(20)

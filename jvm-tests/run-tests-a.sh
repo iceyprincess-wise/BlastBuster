@@ -1,6 +1,8 @@
 #!/bin/bash
 # JVM unit tests for the merged tree, suite A (Agent A: BlastGate,
-# DndSchedule, RamVerdict, EventLog, DndGuard, RamKiller/DndCulprit).
+# DndSchedule, RamVerdict, EventLog, DndGuard, RamKiller/DndCulprit;
+# v1.3: DndEnforce, Elimination, RamList, NotifStore).
+# Total: 197 checks (10 tests), 0 failures.
 # No JUnit: the Gradle test dependency cannot be added without editing
 # app/build.gradle.kts, so tests are plain `main()` runners compiled
 # with the Kotlin compiler from the Gradle cache and run on the JDK 17
@@ -42,12 +44,16 @@ APP_SOURCES=$(find "$SRC" -name '*.kt' ! -name 'MainActivity.kt' | sort)
   "$BASE/jvm-tests/RamVerdictTest.kt" \
   "$BASE/jvm-tests/EventLogTest.kt" \
   "$BASE/jvm-tests/DndGuardTest.kt" \
-  "$BASE/jvm-tests/RamKillerDndCulpritTest.kt" || { echo "COMPILE FAILED"; exit 1; }
+  "$BASE/jvm-tests/RamKillerDndCulpritTest.kt" \
+  "$BASE/jvm-tests/DndEnforceTest.kt" \
+  "$BASE/jvm-tests/EliminationTest.kt" \
+  "$BASE/jvm-tests/RamListTest.kt" \
+  "$BASE/jvm-tests/NotifStoreTest.kt" || { echo "COMPILE FAILED"; exit 1; }
 echo "compile OK"
 
 TOTAL_PASS=0
 TOTAL_FAIL=0
-for T in BlastGateTest DndScheduleTest RamVerdictTest EventLogTest DndGuardTest RamKillerDndCulpritTest; do
+for T in BlastGateTest DndScheduleTest RamVerdictTest EventLogTest DndGuardTest RamKillerDndCulpritTest DndEnforceTest EliminationTest RamListTest NotifStoreTest; do
   echo "=== $T ==="
   OUT_TXT=$("$JAVA" -cp "$OUT:$STDLIB_JAR:$ANDROID_JAR" "${T}Kt" 2>&1)
   echo "$OUT_TXT"

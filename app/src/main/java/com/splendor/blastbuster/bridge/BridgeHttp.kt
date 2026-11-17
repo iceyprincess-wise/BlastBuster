@@ -14,7 +14,7 @@ object BridgeHttp {
 
     /** Routes the bridge serves. */
     enum class Route {
-        STATUS, EVENTS, RAM, DND, NET, HEALTH, COMMAND, NOT_FOUND, METHOD_NOT_ALLOWED
+        STATUS, EVENTS, LOG, RAM, DND, NET, HEALTH, COMMAND, NOT_FOUND, METHOD_NOT_ALLOWED
     }
 
     data class HttpRequest(
@@ -31,6 +31,9 @@ object BridgeHttp {
         return when (path) {
             "/v1/status" -> if (m == "GET") Route.STATUS else Route.METHOD_NOT_ALLOWED
             "/v1/events" -> if (m == "GET") Route.EVENTS else Route.METHOD_NOT_ALLOWED
+            // v1.3 D-04: log export, behind a per-export in-app confirm
+            // (BridgeServer enforces the gate; this is only the route).
+            "/v1/log" -> if (m == "GET") Route.LOG else Route.METHOD_NOT_ALLOWED
             "/v1/ram" -> if (m == "GET") Route.RAM else Route.METHOD_NOT_ALLOWED
             "/v1/dnd" -> if (m == "GET") Route.DND else Route.METHOD_NOT_ALLOWED
             "/v1/net" -> if (m == "GET") Route.NET else Route.METHOD_NOT_ALLOWED

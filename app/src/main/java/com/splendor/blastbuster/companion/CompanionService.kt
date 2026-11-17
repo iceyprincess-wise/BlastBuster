@@ -238,7 +238,8 @@ class CompanionService : Service() {
                     this, "system", "COMPANION_STARTED",
                     "Companion service started (RAM=${Prefs.ramEnabled(this)}, " +
                         "DND=${Prefs.dndEnabled(this)}, Net=${Prefs.netEnabled(this)}, " +
-                        "DNS=${Prefs.dnsEnabled(this)}, Bridge=${Prefs.bridgeEnabled(this)})."
+                        "DNS=${Prefs.dnsEnabled(this)}, Bridge=${Prefs.bridgeEnabled(this)}, " +
+                        "Notif=${Prefs.notifEnabled(this)})."
                 )
             }
         }

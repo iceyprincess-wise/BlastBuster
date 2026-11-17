@@ -31,18 +31,20 @@ import com.splendor.blastbuster.bridge.BridgeActivity
 import com.splendor.blastbuster.bridge.BridgeAuth
 import com.splendor.blastbuster.bridge.BridgeServer
 import com.splendor.blastbuster.companion.CompanionService
+import com.splendor.blastbuster.notif.NotifActivity
+import com.splendor.blastbuster.notif.NotifListener
 
 /**
  * Blast Buster hub (DESIGN.md §6.1). Plain android widgets, no AndroidX —
  * mirrors the proven SplendorCam approach.
  *
  * Six sections, switched by a plain Button row (no TabLayout, no
- * ViewPager — a manual switcher that shows/hides six LinearLayouts in
+ * ViewPager — a manual switcher that shows/hides seven LinearLayouts in
  * one ScrollView, the same construction technique v2 already uses):
  * Blast (the v2 screen, behaviour identical), RAM, Do Not Disturb,
- * Network, Muse bridge, Setup & grants. Each companion section is a
- * summary card that opens its dedicated screen; the dedicated screens
- * hold the detail, the hub holds the state at a glance.
+ * Network, Muse bridge, Notifications, Setup & grants. Each companion
+ * section is a summary card that opens its dedicated screen; the dedicated
+ * screens hold the detail, the hub holds the state at a glance.
  *
  * v1.1 rule preserved VERBATIM: while a blast is active this screen
  * redirects straight to the red lockout screen — there is no reachable
@@ -72,6 +74,8 @@ class MainActivity : Activity() {
     private lateinit var ramToggleButton: Button
     private lateinit var dndToggleButton: Button
     private lateinit var netToggleButton: Button
+    private lateinit var notifToggleButton: Button
+    private lateinit var notifSummaryView: TextView
     private lateinit var bridgeSummaryView: TextView
     private lateinit var grantStatusView: TextView
 
@@ -153,7 +157,7 @@ class MainActivity : Activity() {
         val tabRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        val tabLabels = arrayOf("Blast", "RAM", "DND", "Network", "Bridge", "Setup")
+        val tabLabels = arrayOf("Blast", "RAM", "DND", "Network", "Bridge", "Notifs", "Setup")
         for (i in tabLabels.indices) {
             val btn = Button(this).apply {
                 text = tabLabels[i]
@@ -169,14 +173,15 @@ class MainActivity : Activity() {
         }
         root.addView(tabRow)
 
-        // Six sections in one ScrollView; only one is visible at a time.
+        // Seven sections in one ScrollView; only one is visible at a time.
         val blastSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val ramSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val dndSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val netSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val bridgeSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val notifSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val setupSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        sections.addAll(listOf(blastSection, ramSection, dndSection, netSection, bridgeSection, setupSection))
+        sections.addAll(listOf(blastSection, ramSection, dndSection, netSection, bridgeSection, notifSection, setupSection))
         for (s in sections) root.addView(s)
 
         buildBlastSection(blastSection)
@@ -184,6 +189,7 @@ class MainActivity : Activity() {
         buildDndSection(dndSection)
         buildNetSection(netSection)
         buildBridgeSection(bridgeSection)
+        buildNotifSection(notifSection)
         buildSetupSection(setupSection)
 
         showSection(0)
@@ -493,7 +499,40 @@ class MainActivity : Activity() {
         })
     }
 
-    // ---- Section 6: Setup & grants (§3.3, §3.5) ----
+    // ---- Section 6: Notifications (v1.3; hub card only, §6.1) ----
+    // The listener is system-bound via component state — turning it on
+    // here flips the Prefs toggle and the component state, and the
+    // system binds it. No companion-service wiring is needed.
+
+    private fun buildNotifSection(root: LinearLayout) {
+        root.addView(sectionTitle("Notifications"))
+        root.addView(cardText(
+            "Notifications as they arrive, with replies through the app's " +
+                "own reply action (WhatsApp does). Nothing is ever " +
+                "auto-replied. The log records app + title only, never the " +
+                "message body. Only the latest 50 notifications are kept."
+        ))
+        notifSummaryView = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(getColor(R.color.bb_text))
+        }
+        root.addView(card(notifSummaryView))
+        notifToggleButton = Button(this).apply {
+            setBackgroundResource(R.drawable.btn_primary)
+            setTextColor(getColor(R.color.bb_text))
+            setOnClickListener { toggleNotif() }
+        }
+        root.addView(notifToggleButton)
+        refreshNotifToggle()
+        root.addView(Button(this).apply {
+            text = "Open notifications"
+            setBackgroundResource(R.drawable.btn_primary)
+            setTextColor(getColor(R.color.bb_text))
+            setOnClickListener { NotifActivity.start(this@MainActivity) }
+        })
+    }
+
+    // ---- Section 7: Setup & grants (§3.3, §3.5) ----
 
     private fun buildSetupSection(root: LinearLayout) {
         root.addView(sectionTitle("Setup & grants"))
@@ -550,7 +589,7 @@ class MainActivity : Activity() {
         // Only refresh the section the user is looking at: the tailscale
         // scan is cheap but there is no reason to run it every second
         // while the Blast tab is showing.
-        if (currentSection != 4 && currentSection != 5) return
+        if (currentSection != 4 && currentSection != 5 && currentSection != 6) return
         val enabled = BridgeAuth.isEnabled(this)
         val tail = try {
             BridgeServer(applicationContext).findTailscaleAddress()
@@ -569,6 +608,13 @@ class MainActivity : Activity() {
             "\nPort: 8741" +
             "\nLast poll: $lastPollText"
 
+        if (::notifSummaryView.isInitialized) {
+            val granted = NotifListener.isListenerGranted(this)
+            notifSummaryView.text = "Capture: " +
+                if (NotifListener.isEnabled(this)) "ON" else "OFF" +
+                "\nNotification access: " + if (granted) "granted" else "not granted"
+        }
+
         if (::grantStatusView.isInitialized) {
             fun row(label: String, granted: Boolean) =
                 (if (granted) "✓ " else "✗ ") + label
@@ -578,13 +624,24 @@ class MainActivity : Activity() {
                 PackageManager.PERMISSION_GRANTED
             val adbLogs = checkSelfPermission("android.permission.READ_LOGS") ==
                 PackageManager.PERMISSION_GRANTED
-            grantStatusView.text =
-                row(getString(R.string.grant_write_secure), adbWrite) + "\n" +
-                row(getString(R.string.grant_dump), adbDump) + "\n" +
-                row(getString(R.string.grant_read_logs), adbLogs) + "\n\n" +
-                "One-time ADB setup is optional — see the Bridge screen for " +
-                "what works without it. If a grant above shows ✗ after a reboot " +
-                "or an update, re-run the ADB setup."
+            val sb = StringBuilder()
+            sb.append(row(getString(R.string.grant_write_secure), adbWrite)).append("\n")
+            sb.append(row(getString(R.string.grant_dump), adbDump)).append("\n")
+            sb.append(row(getString(R.string.grant_read_logs), adbLogs))
+            if (!adbWrite || !adbDump || !adbLogs) {
+                sb.append("\n\nRe-run ADB setup for the missing grant(s):")
+                if (!adbWrite) sb.append("\nadb shell pm grant com.splendor.blastbuster android.permission.WRITE_SECURE_SETTINGS")
+                if (!adbDump) sb.append("\nadb shell pm grant com.splendor.blastbuster android.permission.DUMP")
+                if (!adbLogs) sb.append("\nadb shell pm grant com.splendor.blastbuster android.permission.READ_LOGS")
+            }
+            sb.append("\n\nWhat each grant does — and what happens without it:")
+            sb.append("\n• Airplane flick: one tap needs WRITE_SECURE_SETTINGS; without it the Network screen gives guided manual steps.")
+            sb.append("\n• Network-mode lock: one tap needs WRITE_SECURE_SETTINGS; without it your choice is saved and SIM settings open. If the radio ignores a write, the app says so (write_ok_but_not_applied) instead of claiming success.")
+            sb.append("\n• Private DNS 1.1.1.1 fallback: one tap needs WRITE_SECURE_SETTINGS; without it the DNS screen gives manual steps.")
+            sb.append("\n• DUMP: unlocks no per-app PSS list — the RAM screen shows the same numbers with or without it. The grant row stays only for the on-device D-09 check.")
+            sb.append("\n• READ_LOGS: the logcat tier often returns nothing on Android 16, and only runs when notification access is also granted.")
+            sb.append("\n\nOne-time ADB setup is optional — a user who never touches ADB gets a complete app except one-tap airplane flick and one-tap network-mode lock. If a grant above shows ✗ after a reboot or an update, re-run the ADB setup.")
+            grantStatusView.text = sb.toString()
         }
     }
 
@@ -743,6 +800,7 @@ class MainActivity : Activity() {
         refreshRamToggle()
         refreshDndToggle()
         refreshNetToggle()
+        refreshNotifToggle()
     }
 
     private fun refreshRamToggle() {
@@ -769,6 +827,15 @@ class MainActivity : Activity() {
             "Turn network watch off"
         } else {
             "Turn network watch on"
+        }
+    }
+
+    private fun refreshNotifToggle() {
+        if (!::notifToggleButton.isInitialized) return
+        notifToggleButton.text = if (NotifListener.isEnabled(this)) {
+            "Turn notification capture off"
+        } else {
+            "Turn notification capture on"
         }
     }
 
@@ -808,6 +875,22 @@ class MainActivity : Activity() {
             if (nowOn) "Network watch on — signal checked every 30 seconds"
             else "Network watch off",
             Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    // Notifications need no companion-service wiring: the listener is
+    // system-bound via component state (NotifListener.setEnabled).
+    // Notification access itself is still granted in Settings.
+    private fun toggleNotif() {
+        val nowOn = !NotifListener.isEnabled(this)
+        NotifListener.setEnabled(this, nowOn)
+        refreshNotifToggle()
+        refreshHub()
+        Toast.makeText(
+            this,
+            if (nowOn) "Notification capture on — also grant Notification access in Settings"
+            else "Notification capture off",
+            Toast.LENGTH_LONG
         ).show()
     }
 

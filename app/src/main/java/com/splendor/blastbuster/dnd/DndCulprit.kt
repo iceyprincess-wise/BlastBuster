@@ -68,6 +68,37 @@ object DndCulprit {
         return unknown()
     }
 
+    /**
+     * Which culprit tier is actually active, from the two grants that
+     * gate it (pure; JVM-tested in DndEnforceTest). The logcat tier only
+     * ever runs inside [DndListener], which only fires when notification
+     * access is granted — so READ_LOGS on its own buys nothing, and
+     * without either grant the guard falls back to the polling tier.
+     */
+    fun activeTier(readLogsGranted: Boolean, notificationAccessGranted: Boolean): Tier =
+        when {
+            readLogsGranted && notificationAccessGranted -> Tier.LOGCAT
+            notificationAccessGranted -> Tier.LISTENER
+            else -> Tier.POLLING
+        }
+
+    /** Plain-words version of [activeTier] for the DND screen's grant row. */
+    fun activeTierDescription(readLogsGranted: Boolean, notificationAccessGranted: Boolean): String =
+        when (activeTier(readLogsGranted, notificationAccessGranted)) {
+            Tier.LOGCAT -> "Culprit detection: system log — the strongest proof. " +
+                "On Android 16 the log may only show this app's own entries, " +
+                "so it can still come back with no culprit."
+            Tier.LISTENER -> "Culprit detection: app in front when DND changed (inference). " +
+                "The system-log tier needs the READ_LOGS grant: " +
+                "adb shell pm grant com.splendor.blastbuster android.permission.READ_LOGS"
+            Tier.POLLING -> "Culprit detection: app in front when noticed, up to 60 s after " +
+                "the change (inference — weakest tier). " +
+                "Grant notification access for instant change alerts" +
+                if (readLogsGranted) " (READ_LOGS is already granted, so the system-log tier will start working then)."
+                else " and the READ_LOGS ADB grant for the system-log tier."
+            Tier.UNKNOWN -> "Culprit detection: unknown."
+        }
+
     /** True when the `READ_LOGS` ADB grant is currently held. */
     fun hasReadLogsGrant(ctx: Context): Boolean =
         ctx.checkSelfPermission(Manifest.permission.READ_LOGS) ==

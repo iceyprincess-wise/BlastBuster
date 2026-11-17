@@ -105,6 +105,14 @@ class BridgeServer(private val appCtx: Context) {
     var commandExecutor: BridgeCommands.BridgeCommandExecutor =
         BridgeCommands.UnavailableExecutor
 
+    /**
+     * v1.3 D-04 log-export gate: in-memory, 5-minute, single-use.
+     * Never persisted — a restart clears it (safe default). Set only
+     * by an explicit in-app tap (BridgeActivity -> BridgeModule ->
+     * [grantLogExport]); consumed by the first successful /v1/log.
+     */
+    private val logExportGate = LogExportGate()
+
     @Volatile private var running = false
     @Volatile private var startedAtMs = 0L
     @Volatile private var tailscaleAddress: String? = null
@@ -115,6 +123,17 @@ class BridgeServer(private val appCtx: Context) {
     fun isRunning(): Boolean = running
     fun uptimeMs(): Long = if (startedAtMs == 0L) 0L else System.currentTimeMillis() - startedAtMs
     fun tailscaleAddress(): String? = tailscaleAddress
+
+    /**
+     * v1.3 auto re-bind: the addresses this server is actually bound
+     * to right now (e.g. ["127.0.0.1"] vs ["127.0.0.1", "100.x.y.z"]).
+     * Empty when the server is stopped. The UI and /v1/status read
+     * this — never a cached or assumed address.
+     */
+    fun listenState(): List<String> {
+        if (!running) return emptyList()
+        return sockets.map { it.inetAddress.hostAddress }
+    }
 
     /** Tailscale addresses live in 100.64.0.0/10 (CGNAT range). */
     fun findTailscaleAddress(): String? {
@@ -196,6 +215,52 @@ class BridgeServer(private val appCtx: Context) {
         eventProvider.append("bridge", "BRIDGE_STOPPED", "Bridge stopped")
         Log.i(TAG, "Bridge stopped")
     }
+
+    /**
+     * v1.3 auto re-bind: stop + start so the server re-reads the
+     * tailnet address and binds the current address set. Called only
+     * by BridgeModule when [BridgeRebind.shouldRebind] says the
+     * address actually changed (never on every network flap — the
+     * module debounces). Returns true when the server is listening
+     * again afterwards. A failed re-bind leaves the server stopped
+     * and logs BRIDGE_REBIND_FAILED — it never silently falls back
+     * to another port or to 0.0.0.0.
+     */
+    @Synchronized
+    fun rebind(): Boolean {
+        if (!running) return false
+        val oldBinds = listenState()
+        stop()
+        val ok = start()
+        if (ok) {
+            eventProvider.append("bridge", "BRIDGE_REBOUND",
+                "Bridge re-bound: was $oldBinds, now ${listenState()}")
+            Log.i(TAG, "Bridge re-bound to ${listenState()}")
+        } else {
+            eventProvider.append("bridge", "BRIDGE_REBIND_FAILED",
+                "Bridge re-bind failed — was $oldBinds, server is stopped")
+            Log.w(TAG, "Bridge re-bind failed")
+        }
+        return ok
+    }
+
+    /**
+     * v1.3 D-04: open one log-export window (5 minutes, single-use).
+     * Called only from an explicit in-app tap. Returns false when
+     * the server is not running (nothing to export from). Every
+     * grant is logged; the flag itself is in-memory only.
+     */
+    fun grantLogExport(): Boolean {
+        if (!running) return false
+        logExportGate.grant()
+        eventProvider.append("bridge", "BRIDGE_LOG_EXPORT_GRANTED",
+            "Log export allowed once — valid 5 minutes")
+        Log.i(TAG, "Log export granted (one export, 5 minutes)")
+        return true
+    }
+
+    /** True while a log-export window is live (for the UI). */
+    fun isLogExportAllowed(): Boolean = logExportGate.isAllowed()
 
     private fun acceptLoop(server: ServerSocket) {
         while (running) {
@@ -290,6 +355,7 @@ class BridgeServer(private val appCtx: Context) {
             BridgeHttp.Route.STATUS -> Triple(200, "OK", statusJson())
             BridgeHttp.Route.HEALTH -> Triple(200, "OK", MiniJson.obj("ok" to true))
             BridgeHttp.Route.EVENTS -> handleEvents(request)
+            BridgeHttp.Route.LOG -> handleLog(request)
             BridgeHttp.Route.RAM -> moduleJson("ram")
             BridgeHttp.Route.DND -> moduleJson("dnd")
             BridgeHttp.Route.NET -> moduleJson("net")
@@ -322,6 +388,33 @@ class BridgeServer(private val appCtx: Context) {
     }
 
     private fun handleEvents(request: BridgeHttp.HttpRequest): Triple<Int, String, String> {
+        return Triple(200, "OK", eventsJson(request))
+    }
+
+    /**
+     * v1.3 D-04 `GET /v1/log`: same events JSON shape as /v1/events
+     * (since/limit params), but ONLY while an in-app per-export
+     * confirm is live. Otherwise 403 `log_export_not_allowed`.
+     * The confirm is consumed on the first successful export, so a
+     * second fetch needs a fresh tap. A read, so it is allowed during
+     * a blast (same as /v1/events) — it changes no phone state. Every
+     * grant/deny/export is in EventLog. The export never contains the
+     * token, codes, numbers or GPS — events already contain none.
+     */
+    private fun handleLog(request: BridgeHttp.HttpRequest): Triple<Int, String, String> {
+        if (!logExportGate.tryConsume()) {
+            eventProvider.append("bridge", "BRIDGE_LOG_EXPORT_DENIED",
+                "Bridge log export denied — no active in-app export confirm")
+            return Triple(403, "Forbidden", errorJson("log_export_not_allowed"))
+        }
+        val body = eventsJson(request)
+        eventProvider.append("bridge", "BRIDGE_LOG_EXPORTED",
+            "Bridge log export served (one use of the in-app confirm)")
+        return Triple(200, "OK", body)
+    }
+
+    /** Shared /v1/events + /v1/log body: {"ok", "events", "next_since"}. */
+    private fun eventsJson(request: BridgeHttp.HttpRequest): String {
         val since = request.query["since"]?.toLongOrNull() ?: 0L
         val limit = (request.query["limit"]?.toIntOrNull() ?: 100).coerceIn(1, 100)
         val events = try {
@@ -334,12 +427,11 @@ class BridgeServer(private val appCtx: Context) {
         } catch (_: Exception) {
             since
         }
-        val body = MiniJson.obj(
+        return MiniJson.obj(
             "ok" to true,
             "events" to events,
             "next_since" to nextSince
         )
-        return Triple(200, "OK", body)
     }
 
     private fun handleCommand(request: BridgeHttp.HttpRequest): Triple<Int, String, String> {
@@ -440,6 +532,7 @@ class BridgeServer(private val appCtx: Context) {
         fields["bridge_running"] = running
         fields["tailscale"] = tailscaleAddress != null
         fields["tailscale_address"] = tailscaleAddress
+        fields["bind_addresses"] = listenState()
         fields["port"] = PORT
         fields["location"] = null // No new location exposure in v1.2 (§5.5).
         fields["events_count"] = try {
@@ -466,6 +559,7 @@ class BridgeServer(private val appCtx: Context) {
         "bridge_running" to running,
         "bridge_port" to PORT,
         "bridge_tailscale" to (tailscaleAddress != null),
+        "bridge_bind_addresses" to listenState(),
         "bridge_uptime_ms" to uptimeMs()
     )
 

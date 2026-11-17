@@ -46,6 +46,7 @@ class BridgeActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var tokenView: TextView
     private lateinit var eventsView: TextView
+    private lateinit var exportView: TextView
     private lateinit var toggleButton: Button
     private var tokenVisible = false
     private val module by lazy { BridgeModule(applicationContext) }
@@ -140,6 +141,36 @@ class BridgeActivity : Activity() {
             }
         })
 
+        root.addView(sectionTitle("Log export"))
+        exportView = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(getColor(com.splendor.blastbuster.R.color.bb_text2))
+        }
+        root.addView(card(exportView))
+        root.addView(Button(this).apply {
+            text = "Allow one log export"
+            setBackgroundResource(com.splendor.blastbuster.R.drawable.btn_ghost)
+            setTextColor(getColor(com.splendor.blastbuster.R.color.bb_accent2))
+            setOnClickListener {
+                val ok = BridgeModule.liveServer()?.grantLogExport() ?: false
+                if (ok) {
+                    Toast.makeText(this@BridgeActivity,
+                        "Log export allowed once, for 5 minutes. Muse can fetch /v1/log once.",
+                        Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this@BridgeActivity,
+                        "Bridge is not running — turn it on first.",
+                        Toast.LENGTH_LONG).show()
+                }
+                refresh()
+            }
+        })
+        root.addView(caption(
+            "The event log leaves this phone only after you tap the button " +
+                "above — one export, 5 minutes, then it closes again. The " +
+                "export never contains the token, codes, numbers or GPS."
+        ))
+
         root.addView(sectionTitle("How Muse reaches this phone"))
         root.addView(TextView(this).apply {
             text = "1. Install Tailscale on this phone and join your tailnet.\n" +
@@ -187,8 +218,10 @@ class BridgeActivity : Activity() {
         root.addView(caption(
             "Honest limits: no push, no offline reach, no waking a sleeping " +
                 "phone, no blast start, no file transfer or screenshots — JSON " +
-                "status, events and commands only. The bridge never sends your " +
-                "token, codes, trusted numbers or GPS coordinates to Muse."
+                "status, events and commands only. The log leaves the phone " +
+                "only after one tap on \"Allow one log export\" per export. " +
+                "The bridge never sends your token, codes, trusted numbers " +
+                "or GPS coordinates to Muse."
         ))
         refresh()
     }
@@ -225,6 +258,22 @@ class BridgeActivity : Activity() {
         val running = CompanionService.bridgeRunning()
         val tail = CompanionService.bridgeTailscaleAddress()
             ?: module.server().findTailscaleAddress()
+        // Real bind state from the live server (v1.3): the addresses it
+        // is actually listening on. Falls back to deriving them from
+        // the live tailnet address only when the live server is not
+        // reachable from this screen — the bind set is always
+        // localhost, plus the tailnet address when one exists.
+        val liveBinds = BridgeModule.liveServer()?.listenState() ?: emptyList()
+        val bindText = when {
+            liveBinds.isNotEmpty() -> liveBinds.joinToString(", ")
+            running -> if (tail != null) "127.0.0.1, $tail" else "127.0.0.1"
+            else -> "not listening"
+        }
+        val tailnetText = if (tail != null) {
+            "up ($tail)"
+        } else {
+            "down — open the Tailscale app and join your tailnet"
+        }
         val lastPoll = BridgeAuth.getLastPollAt(this)
         val lastPollText = if (lastPoll == 0L) {
             "never polled yet"
@@ -234,10 +283,19 @@ class BridgeActivity : Activity() {
         }
         statusView.text = "Bridge: " + if (enabled) "ON" else "OFF" +
             "\nServer: " + if (running) "listening" else "stopped" +
+            "\nListening on: $bindText" +
             "\nPort: 8741" +
-            "\nTailnet: " + (tail ?: "not connected — open the Tailscale app and join your tailnet") +
+            "\nTailnet: $tailnetText" +
             "\nLast poll: $lastPollText"
         toggleButton.text = if (enabled) "Turn bridge off" else "Turn bridge on"
+        val exportAllowed = BridgeModule.liveServer()?.isLogExportAllowed() ?: false
+        exportView.text = if (exportAllowed) {
+            "Export allowed: Muse can fetch /v1/log once, for the next 5 minutes. " +
+                "After that — or after one export — it closes again."
+        } else {
+            "Export closed: Muse cannot download the log until you tap " +
+                "\"Allow one log export\" below."
+        }
         refreshToken()
         val (events, _) = EventLog.readSince(this, 0, 10)
         eventsView.text = if (events.isEmpty()) {

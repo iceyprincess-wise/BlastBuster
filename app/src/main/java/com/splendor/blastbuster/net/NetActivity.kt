@@ -62,6 +62,12 @@ class NetActivity : Activity() {
             "One-tap flick and mode lock need this ADB grant (once, from a computer):\n" +
                 "adb shell pm grant com.splendor.blastbuster android.permission.WRITE_SECURE_SETTINGS"
         private const val ADB_GRANTED_LINE = "ADB grant present — one-tap flick and mode lock are available."
+        private const val GUIDED_STEPS =
+            "Without the grant, both features still work by hand:\n" +
+                "• Flick — open Airplane settings, turn Airplane mode ON, wait 8 seconds, " +
+                "turn it OFF, then tap “Check signal now”.\n" +
+                "• Mode lock — pick a mode and tap Apply; the SIM's mobile-network settings " +
+                "open and you set the mode there. Your choice is saved either way."
         private const val NO_SIM_LINE =
             "No SIM information available — grant the Phone permission, or the phone reports no SIMs."
     }
@@ -74,6 +80,7 @@ class NetActivity : Activity() {
     private lateinit var flickStatus: TextView
     private lateinit var dropsView: TextView
     private lateinit var grantView: TextView
+    private lateinit var guidedView: TextView
     private val modeGroups = mutableMapOf<Int, RadioGroup>()
 
     private var flickCountdownSeconds = 0
@@ -125,9 +132,15 @@ class NetActivity : Activity() {
 
         grantView = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, 0, 0, dp(4))
         }
         root.addView(grantView)
+        guidedView = TextView(this).apply {
+            text = GUIDED_STEPS
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setPadding(0, 0, 0, dp(12))
+        }
+        root.addView(guidedView)
 
         simsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(simsContainer)
@@ -184,6 +197,7 @@ class NetActivity : Activity() {
     private fun updateGrantRow() {
         val granted = NetTools.hasSecureSettingsGrant(this)
         grantView.text = if (granted) ADB_GRANTED_LINE else ADB_GRANT_LINE
+        guidedView.visibility = if (granted) android.view.View.GONE else android.view.View.VISIBLE
         flickButton.text = if (granted) FLICK_ONE_TAP else FLICK_GUIDED
     }
 
@@ -253,7 +267,11 @@ class NetActivity : Activity() {
         modeGroups[sim.subscriptionId] = group
         card.addView(group)
         card.addView(Button(this).apply {
-            text = "Apply mode for ${sim.carrierName}"
+            text = if (NetTools.hasSecureSettingsGrant(this@NetActivity)) {
+                "Apply mode for ${sim.carrierName}"
+            } else {
+                "Apply mode for ${sim.carrierName} (guided — needs ADB grant)"
+            }
             setOnClickListener { onApplyModeClicked(sim) }
         })
         return card
@@ -271,7 +289,7 @@ class NetActivity : Activity() {
         flickStatus.text = "Applying ${mode.displayName} for ${sim.carrierName}… (this takes ~30 s to verify)"
         module.setNetworkMode(this, sim.subscriptionId, sim.slotIndex, mode) { outcome ->
             flickStatus.text = outcome.detail
-            if (outcome.result == NetTools.ModeResult.NEEDS_ADB) {
+            if (NetOutcomeText.modeShowsGuidedSteps(outcome.result.name)) {
                 openNetworkSettings()
             }
         }

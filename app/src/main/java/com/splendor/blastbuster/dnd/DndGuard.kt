@@ -12,6 +12,30 @@ import com.splendor.blastbuster.companion.CompanionModule
 import com.splendor.blastbuster.companion.EventLog
 import java.time.LocalDateTime
 
+/**
+ * Pure fight-episode tracker (JVM-tested in DndEnforceTest): the guard
+ * must log `DND_FIGHT_DETECTED` once per fight episode, not once per
+ * 60 s tick, and the "fight detected" flag must clear when the hour
+ * window clears. [noteFight] returns true only on the first check that
+ * observes a fight; it returns false while a fight is already being
+ * reported, and resets the episode when called with false.
+ */
+class DndFightTracker {
+    private var fightActive = false
+
+    fun noteFight(isFightNow: Boolean): Boolean {
+        if (!isFightNow) {
+            fightActive = false
+            return false
+        }
+        if (fightActive) return false
+        fightActive = true
+        return true
+    }
+
+    fun isFightActive(): Boolean = fightActive
+}
+
 /** What the guard should do about the current DND state. Pure decision. */
 enum class DndAction { NONE, APPLY_ON, APPLY_OFF }
 
@@ -90,8 +114,14 @@ class DndGuard : CompanionModule {
         @Volatile
         private var sharedLastActualIsDnd: Boolean = false
 
+        // One fight-episode tracker, shared like the limiter: the
+        // service guard and the DND screen's one-shot checks share it,
+        // so a fight is logged once per episode (not once per 60 s
+        // tick) and the flag clears when the hour window clears.
+        private val sharedFightState = DndFightTracker()
+
         @Volatile
-        private var sharedFightDetected: Boolean = false
+        private var sharedLastCulprit: DndCulprit.CulpritResult? = null
     }
 
     @Volatile
@@ -138,8 +168,14 @@ class DndGuard : CompanionModule {
         val expected = sharedLastExpected?.name?.lowercase() ?: "none"
         return "{\"enabled\":${Prefs.dndEnabled(appCtx ?: return "{\"enabled\":false}")}," +
             "\"expected\":\"$expected\",\"dnd_on\":$sharedLastActualIsDnd," +
-            "\"fight_detected\":$sharedFightDetected}"
+            "\"fight_detected\":${sharedFightState.isFightActive()}"
     }
+
+    /** True while a fight episode is active (3 re-applies in an hour). */
+    fun isFightDetected(): Boolean = sharedFightState.isFightActive()
+
+    /** Last culprit observed by any guard check (listener, logcat or polling tier). */
+    fun lastCulprit(): DndCulprit.CulpritResult? = sharedLastCulprit
 
     /** One enforcement check, on the guard thread (or a caller thread). */
     fun checkNow(culprit: DndCulprit.CulpritResult? = null) {
@@ -157,19 +193,36 @@ class DndGuard : CompanionModule {
         val actualIsDnd = nm.currentInterruptionFilter != FILTER_OFF
         sharedLastActualIsDnd = actualIsDnd
         val action = decideDndAction(expected, actualIsDnd)
+        val now = System.currentTimeMillis()
+        // The fight flag clears when the hour window clears, even when
+        // there is no drift on this tick — otherwise it would latch true
+        // forever after the first fight.
+        val fightNow = sharedLimiter.isFight(now)
+        if (!fightNow) sharedFightState.noteFight(false)
         if (action == DndAction.NONE) return
         val gate = BlastGate.forContext(ctx)
         if (!gate.checkWrite("dnd re-apply $action") { reason ->
                 EventLog.append(ctx, "dnd", "DND_SKIPPED_BLAST_ACTIVE", reason)
             }) return
-        val now = System.currentTimeMillis()
-        if (sharedLimiter.isFight(now)) {
-            sharedFightDetected = true
-            EventLog.append(
-                ctx, "dnd", "DND_FIGHT_DETECTED",
-                "DND re-applied 3 times in an hour — guard stopped re-applying; " +
-                    "suspected app decides next, see history."
-            )
+        // Culprit for this drift: the listener/logcat result when one was
+        // supplied, else the polling tier (foreground app at detection
+        // time, DESIGN.md §5.2 tier 3) — the 60 s poll previously logged
+        // re-applies with no culprit at all.
+        val effectiveCulprit = culprit?.takeIf { it.packageName != null }
+            ?: DndCulprit.resolve(null, foregroundPackage(ctx), DndCulprit.Tier.POLLING)
+        if (effectiveCulprit.packageName != null) sharedLastCulprit = effectiveCulprit
+        if (fightNow) {
+            // Log once per fight episode, naming the suspected app when
+            // one was observed — not once per 60 s tick.
+            if (sharedFightState.noteFight(true)) {
+                val suspect = sharedLastCulprit?.let { " Suspected app: ${it.packageName} (${it.label})." }
+                    ?: " No culprit observed — see history."
+                EventLog.append(
+                    ctx, "dnd", "DND_FIGHT_DETECTED",
+                    "DND re-applied 3 times in an hour — guard stopped re-applying;$suspect " +
+                        "You decide what to do; the guard tries again after the hour passes."
+                )
+            }
             return
         }
         if (!sharedLimiter.allow(now, action)) return
@@ -181,8 +234,8 @@ class DndGuard : CompanionModule {
             wl.acquire(10L * 1000L)
             nm.setInterruptionFilter(if (action == DndAction.APPLY_ON) FILTER_ON else FILTER_OFF)
             sharedLimiter.record(now, action)
-            val culpritText = if (culprit != null && culprit.packageName != null) {
-                " Culprit: ${culprit.packageName} (${culprit.label})."
+            val culpritText = if (effectiveCulprit.packageName != null) {
+                " Culprit: ${effectiveCulprit.packageName} (${effectiveCulprit.label})."
             } else ""
             EventLog.append(
                 ctx, "dnd", "DND_REAPPLIED",

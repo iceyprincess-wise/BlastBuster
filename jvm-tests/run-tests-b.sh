@@ -1,5 +1,8 @@
 #!/bin/bash
-# JVM unit tests for the Blast Buster v1.2 Network/DNS module (Agent B).
+# JVM unit tests for the Blast Buster v1.3 Network/DNS module (Agent B).
+# Total: 238 checks passed, 0 failures, 3 skipped (environmental:
+# the sandbox blocks Java UDP send; see DnsPipePacketsTest).
+# v1.3 additions: DnsFixTest (32), NetAdbTest (32).
 #
 # DESIGN.md §7.1 names src/test/ JUnit tests, but only if the JUnit
 # dependency is available offline — and adding testImplementation would
@@ -31,14 +34,18 @@ COMPILER_CP="$(ls "$HOME"/gradle-8.5/lib/*.jar | tr '\n' ':')$STDLIB"
     "$SRC/net/SignalGrade.kt" \
     "$SRC/net/NetMode.kt" \
     "$SRC/net/EventSink.kt" \
+    "$SRC/net/NetOutcomes.kt" \
     "$SRC/dns/DnsParser.kt" \
+    "$SRC/dns/DnsState.kt" \
     "$SRC/dns/Blocklist.kt" \
     "$SRC/dns/DnsPipe.kt" \
     "$TESTS/SignalGradeTest.kt" \
     "$TESTS/DnsParserTest.kt" \
     "$TESTS/BlocklistTest.kt" \
     "$TESTS/DnsPipePacketsTest.kt" \
-    "$TESTS/NetModeTest.kt" || { echo "COMPILE FAILED"; exit 1; }
+    "$TESTS/NetModeTest.kt" \
+    "$TESTS/DnsFixTest.kt" \
+    "$TESTS/NetAdbTest.kt" || { echo "COMPILE FAILED"; exit 1; }
 echo "compile OK"
 echo
 
@@ -60,6 +67,8 @@ run_one DnsParserTest
 run_one BlocklistTest "$BUNDLED"
 run_one DnsPipePacketsTest
 run_one NetModeTest
+run_one DnsFixTest
+run_one NetAdbTest
 
 if [ "$overall" -eq 0 ]; then
     echo "ALL JVM TESTS PASSED"

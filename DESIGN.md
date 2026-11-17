@@ -1,16 +1,87 @@
-# Blast Buster v1.2 — Muse Companion Suite: Design Document
+# Blast Buster v1.3 — Muse Companion Suite: Design Document
 
-**Status:** DESIGN ONLY — no code changed, no build run, no push made.
-**Author:** design lead (subagent), 2026-11-17.
+**Status:** v1.3 INTEGRATED — the five v1.3 module agents' work is merged
+in `~/workspace/blastbuster-v3`, the JVM suite is green, no Gradle build
+run, no signing, no push (the parent does those after integration).
+**Author:** design lead (subagent), 2026-11-17; v1.3 integration 2026-11-17.
 **Repo:** https://github.com/iceyprincess-wise/BlastBuster, branch `main`.
-**Baseline:** v2, `versionName 1.1`, `versionCode 2`, package `com.splendor.blastbuster`.
-**Target:** v1.2, `versionName 1.2`, `versionCode 3`, same package, same app name.
+**Baseline:** v1.2, `versionName 1.2`, `versionCode 3`, package
+`com.splendor.blastbuster`, remote HEAD `e8fc485a` (verified live).
+**Target:** v1.3, `versionName 1.3`, `versionCode 4`, same package, same app name.
 **Target device:** Redmi 15C, 4 GB RAM, Android 16 / API 36, HyperOS, MediaTek Helio G81,
 dual SIM (Airtel + MTN). The app must also be usable by other Muse owners, so
 **nothing personal is hardcoded**: no trigger codes, no phone numbers, no SIM
 identities, no Tailscale addresses, no tokens, no schedules — everything
 configurable in-app, everything defaulting to OFF/safe except the blast core,
 which keeps its v2 defaults.
+
+## What changed in v1.3
+
+Eleven items, each built by a module agent and wired in by integration.
+The blast core is untouched (verified: the ten blast files' mtimes predate
+the round and contain no v1.3 identifiers). One known build-breaker was
+fixed at integration: `Settings.Global.PRIVATE_DNS_MODE` /
+`PRIVATE_DNS_SPECIFIER` are hidden APIs absent from the android-34
+`android.jar`, so every reference now uses the string literals
+`"private_dns_mode"` / `"private_dns_specifier"` (same values) — behaviour
+unchanged.
+
+1. **Bridge auto re-bind on Tailscale up/down** (`bridge/BridgeRebind.kt`) —
+   the server re-binds only when the tailnet address actually changes
+   (same address, including still-no-tailnet, means no rebind); bind set is
+   always 127.0.0.1 plus the tailnet address when one exists, port 8741.
+2. **Bridge `GET /v1/log` export — §8 D-04 DONE** (`bridge/LogExportGate.kt`) —
+   the log leaves the phone only behind an explicit per-export confirm in
+   the app: single-use, 5-minute window, never persisted (a restart clears
+   it). The server logs every grant/deny/export.
+3. **Notification capture** (`notif/NotifListener.kt`, `NotifStore.kt`) — a
+   second `NotificationListenerService`, system-bound via component state,
+   OFF by default; latest 50 notifications kept; `EventLog` records app +
+   title only, never the message body.
+4. **WhatsApp reply** (`notif/NotifReply.kt`, `NotifActivity.kt`) — reply
+   through the notification's own reply action (WhatsApp exposes one);
+   nothing is ever auto-replied; replies are blocked during a blast.
+5. **Elimination mode** (`ram/EliminationMode.kt`, "Eliminate now" in
+   `RamActivity`) — one tap kills rogue apps only, one at a time,
+   blast-gated; the result (killed / restarted / failed) is reported
+   honestly, never assumed.
+6. **Low-memory alert** (`ram/RamSnapshot.kt` `LowMemoryEpisode`,
+   banner in `RamActivity`) — a banner shows when free RAM drops below
+   the system's own low-memory threshold.
+7. **RAM-list UsageStats rows** (`ram/RamWatch.kt`, `RamListPresentation`) —
+   the list now shows recently-used apps from `UsageStatsManager` with
+   last-used time. Honest verdict: **DUMP unlocks no per-app PSS list** —
+   there is no public API that yields other apps' pids, so no DUMP path
+   is wired and the screen shows the same numbers with or without the
+   grant (§7.2 D-09).
+8. **DND schedule from UI + fight rule** (`dnd/DndGuard.kt`,
+   `DndFightTracker`, `DndReapplyLimiter`, `decideDndAction`) — the
+   schedule the UI saves is the schedule the guard reads; after 3
+   re-applies in an hour the guard stops re-applying, logs
+   `DND_FIGHT_DETECTED` once per episode, and lets the user decide.
+   Honest verdict: **the READ_LOGS logcat tier often returns nothing on
+   Android 16** — it only runs when notification access is also granted,
+   and the log may show only this app's own entries (§7.2 D-07).
+9. **Net ADB outcomes** (`net/NetOutcomes.kt`) — flick / mode-lock
+   results are mapped to honest status lines: `write_ok_but_not_applied`
+   is surfaced instead of claimed success, `needs_adb` shows the guided
+   manual path, and the choice is saved when the grant is missing.
+10. **Private DNS warning + 1.1.1.1 fallback** (`dns/DnsActivity.kt`,
+    `dns/DnsState.kt`) — Private DNS mode is read live from
+    `Settings.Global`; the screen warns when it bypasses the pipe, and
+    offers a one-tap fallback to `one.one.one.one` with the
+    `WRITE_SECURE_SETTINGS` grant (manual steps without it). Refused
+    while another VPN holds the slot — Tailscale's resolver does not
+    speak DoT.
+11. **DNS pipe vs Tailscale VPN-slot choice — §8 D-08 SHIPPED** — the DNS
+    screen states the conflict (one VPN slot; the pipe and Tailscale
+    cannot hold it together) and lets the user choose. Honest verdicts:
+    **running DNS through Tailscale is not feasible from the app**, and
+    **DoH/DoT upstream in the pipe is out — next round** (§8 D-09).
+
+The v1.2 design below is otherwise unchanged and still describes the
+architecture, permissions matrix, and module behaviour; §7.2 and §8 are
+updated for v1.3 where noted.
 
 ---
 
@@ -1155,23 +1226,31 @@ verification scripts — the code agents must confirm which, and record it).
 
 | # | Check | Pass criteria |
 |---|---|---|
-| D-01 | Install over v2 (same key), open app | No crash, blast settings preserved, version shows 1.2 / code 3. |
+| D-01 | Install over v1.2 (same key), open app | No crash, blast settings preserved, version shows 1.3 / code 4. |
 | D-02 | Blast regression (full v2 test) | Trigger SMS → siren + strobe + lockout; stop SMS → stops; SIM pull → auto-blast; fingerprint unlock works. **Any failure here stops the release.** |
 | D-03 | Blast priority | Start blast → attempt RAM kill, DND re-apply, flick, DNS restart, bridge write from Muse → all skipped/logged, blast unaffected, lockout still fingerprint-only. |
-| D-04 | RAM watch | Top-10 list matches `adb shell dumpsys meminfo` PSS within ±5% for the same packages; kill a known background app → freed, verified by re-scan; kill a restarting app → reported `restarted`, not `killed`. |
+| D-04 | RAM watch | Top-10 list matches `adb shell dumpsys meminfo` PSS within ±5% for the same packages; kill a known background app → freed, verified by re-scan; kill a restarting app → reported `restarted`, not `killed`. **v1.3:** "Eliminate now" kills rogue apps only, one at a time, and reports killed/restarted/failed honestly; low-memory banner appears when free RAM is below the system threshold; list rows show last-used time from UsageStats when granted. |
 | D-05 | RAM budget | `CompanionService` PSS < 60 MB idle; DNS pipe < 40 MB; bridge < 10 MB (read via `adb shell dumpsys meminfo com.splendor.blastbuster`). |
-| D-06 | DND schedule | Set 2-minute test window → DND applies within 60 s; turn DND off manually inside the window → re-applied within 60 s + logged with a culprit label; outside the window → DND off. |
-| D-07 | DND culprit tiers | With `READ_LOGS` granted: change DND from another app → check whether the logcat tier names it. **Record the result either way** — this decides whether `READ_LOGS` stays in §9. Without it: inference tier labels correctly. |
+| D-06 | DND schedule | Set 2-minute test window → DND applies within 60 s; turn DND off manually inside the window → re-applied within 60 s + logged with a culprit label; outside the window → DND off. **v1.3:** the schedule is set from the DND screen UI (one nightly rule) and the guard reads exactly what the UI saved; after 3 re-applies in an hour the guard stops, logs `DND_FIGHT_DETECTED`, and lets the user decide. |
+| D-07 | DND culprit tiers | With `READ_LOGS` granted: change DND from another app → check whether the logcat tier names it. **Record the result either way** — this decides whether `READ_LOGS` stays in §9. Without it: inference tier labels correctly. **v1.3 verdict (from the code): the logcat tier often returns nothing on Android 16** — the log may show only this app's own entries — and it only runs when notification access is also granted. Still open on-device: confirm on the Redmi 15C. |
 | D-08 | ADB grants persistence | Grant all three (§9) → reboot → `dumpsys package` shows all three `granted=true` → update (reinstall same key) → still granted → uninstall/reinstall → grants gone (expected — re-run §9). |
-| D-09 | DUMP tier | With `DUMP` granted, record exactly which extra diagnostics (if any) the app can surface beyond the no-grant RAM screen. If none, the DUMP screen/row is removed and §9 drops the grant. |
-| D-10 | Airplane flick | With grant: one tap → offline ~10 s → signal returns, verified by `NetWatch` + a data check (load a page). Without grant: guided path works end-to-end. |
-| D-11 | Network-mode lock | With grant: set 4G-only → live network type reads LTE after 30 s; set Auto → returns. Record honestly if HyperOS ignores the write (`write_ok_but_not_applied`). |
-| D-12 | DNS pipe | Enable → `dnsleaktest`-style check shows 1.1.1.1 (or chosen upstream); open a known blocked domain → fails to load, counter increments; open an allowed site → loads; disable → normal DNS returns. Start a real VPN → pipe yields with the conflict card. Private DNS on → warning shown, pipe reports inert. |
-| D-13 | Bridge over Tailscale | Phone on tailnet + Muse VM joined → `curl` via tunnel proxy to `GET /v1/status` returns 200 + valid JSON; wrong token → 401; `GET /v1/events?since=…` pages correctly; `POST /v1/command ram.snapshot` returns a snapshot; `POST blast.stop` with wrong code → rejected; with right code during a test blast → stops. Phone off tailnet → polling fails cleanly (no crash, no retry storm — Muse-side back-off). |
-| D-14 | Bridge without Tailscale | Bridge on, Tailscale off → server on localhost only, `/status` reports `tailscale: false`, UI shows the install step. |
+| D-09 | DUMP tier | With `DUMP` granted, record exactly which extra diagnostics (if any) the app can surface beyond the no-grant RAM screen. If none, the DUMP screen/row is removed and §9 drops the grant. **v1.3 verdict (from the code): DUMP unlocks no per-app PSS list** — no public API yields other apps' pids, so no DUMP path is wired; the RAM screen shows the same numbers with or without it. Still open on-device: confirm `dumpPackageState` surfaces nothing extra, then drop the grant from §9. |
+| D-10 | Airplane flick | With grant: one tap → offline ~10 s → signal returns, verified by `NetWatch` + a data check (load a page). Without grant: guided path works end-to-end. **v1.3:** the outcome line is honest either way (`flick_ok_signal_restored` / `flick_ok_no_improvement` / `flick_failed` / `needs_adb`). |
+| D-11 | Network-mode lock | With grant: set 4G-only → live network type reads LTE after 30 s; set Auto → returns. Record honestly if HyperOS ignores the write (`write_ok_but_not_applied`). **v1.3:** without the grant the choice is saved and SIM settings open; a write the radio ignores is reported as `write_ok_but_not_applied`, never as success. |
+| D-12 | DNS pipe | Enable → `dnsleaktest`-style check shows 1.1.1.1 (or chosen upstream); open a known blocked domain → fails to load, counter increments; open an allowed site → loads; disable → normal DNS returns. Start a real VPN → pipe yields with the conflict card. Private DNS on → warning shown, pipe reports inert. **v1.3:** Private DNS warning is live; the 1.1.1.1 fallback works one-tap with the grant and guided-manual without it, and is refused while another VPN holds the slot. |
+| D-13 | Bridge over Tailscale | Phone on tailnet + Muse VM joined → `curl` via tunnel proxy to `GET /v1/status` returns 200 + valid JSON; wrong token → 401; `GET /v1/events?since=…` pages correctly; `POST /v1/command ram.snapshot` returns a snapshot; `POST blast.stop` with wrong code → rejected; with right code during a test blast → stops. Phone off tailnet → polling fails cleanly (no crash, no retry storm — Muse-side back-off). **v1.3:** `GET /v1/log` returns 403 without a fresh in-app grant and 200 once within 5 minutes of tapping "Allow one log export"; a second fetch without a fresh grant is denied. |
+| D-14 | Bridge without Tailscale | Bridge on, Tailscale off → server on localhost only, `/status` reports `tailscale: false`, UI shows the install step. **v1.3:** turning Tailscale on afterwards re-binds the server to the tailnet address without restarting the app (D-18). |
 | D-15 | Battery / HyperOS survival | 24 h with all modules on: guard + companion still alive, no "app killed" gap in `EventLog`, battery delta attributable to the app < 5% (read from battery stats). |
 | D-16 | No personal data hardcoded | Fresh install on a second phone (or emulator): no trigger code, number, token, address, or schedule from Splendor's phone appears; all defaults are the generic ones. |
-| D-17 | UI on Redmi 15C | All screens render, no clipped text, no overlap at the device's font scale; section switches animate without visible jank; lockout screen pixel-identical in behaviour to v2. |
+| D-17 | UI on Redmi 15C | All screens render, no clipped text, no overlap at the device's font scale; section switches animate without visible jank; lockout screen pixel-identical in behaviour to v2. **v1.3:** the hub has a seventh tab (Notifications) alongside RAM/DND/Network/Bridge/Setup; the Setup screen re-checks all three ADB grants on every launch and shows the exact re-run `pm grant` command for any missing grant. |
+| D-18 | Bridge re-bind on Tailscale up/down (v1.3) | Bridge on with Tailscale off → server on localhost only. Turn Tailscale on → the server re-binds to the tailnet address without an app restart, and `GET /v1/status` answers on the tailnet address. Turn Tailscale off → back to localhost-only, no crash, no retry storm. A flapping network must not thrash the server (no re-bind when the address is unchanged). |
+| D-19 | Bridge `/v1/log` grant/deny (v1.3) | Without an in-app grant: `GET /v1/log` → 403/denied, logged. Tap "Allow one log export" → one fetch within 5 minutes succeeds; a second fetch without a fresh tap is denied; after 5 minutes it is denied again; after an app restart it is denied (the grant is never persisted). |
+| D-20 | Notification capture + WhatsApp reply (v1.3) | Turn capture on + grant notification access → a WhatsApp message arrives → it appears in the Notifications screen (newest first); the EventLog entry records app + title only, never the message body. Reply from the app → the reply is delivered via WhatsApp's own reply action. Nothing is auto-replied. Turn capture off → nothing further is captured. |
+| D-21 | Elimination mode one-tap (v1.3) | In the RAM screen, tap "Eliminate now" → rogue apps only are killed, one at a time; each result is reported honestly (killed / restarted / failed). During a blast the button refuses and kills nothing. |
+| D-22 | Low-memory alert (v1.3) | Fill RAM until free memory drops below the system threshold → the RAM screen shows the LOW MEMORY banner with the free amount; when memory recovers the banner clears. |
+| D-23 | RAM-list UsageStats rows (v1.3) | With Usage Access granted, list rows show each app's last-used time from UsageStats; without it, rows show PSS + verdict only and say usage data is unavailable. |
+| D-24 | DND schedule from UI (v1.3) | Set a nightly rule in the DND screen and save → the guard enforces exactly that rule (DND on in the window, off outside it); clearing the schedule stops enforcement. |
+| D-25 | Private DNS warning + 1.1.1.1 fallback (v1.3) | With Private DNS on → the DNS screen warns the pipe is bypassed. With the ADB grant, tap the fallback → Private DNS is set to `one.one.one.one` and the warning clears. Without the grant, the guided manual steps open instead. While Tailscale (or another VPN) holds the slot, the fallback is refused with the reason stated. |
 
 ### 7.3 Release gates
 
@@ -1190,17 +1269,17 @@ verification scripts — the code agents must confirm which, and record it).
 
 | # | Decision | Options / designer recommendation |
 |---|---|---|
-| D-01 | Cloud relay for true push — fund a server? | **Recommendation: no in v1.2.** Polling over Tailscale is free and private. A relay would cost money every month, need someone to run it, and put location/security events on a server. Revisit only if the poll delay actually hurts in practice. |
-| D-02 | TLS on the bridge? | Tailscale already encrypts the traffic; localhost needs none. **Recommendation: no in v1.2.** A self-signed cert adds trust prompts and failure modes for zero benefit on a tailnet-only server. |
-| D-03 | Remote `blast.start` via the bridge? | **Recommendation: do not add.** The SMS trigger already starts a blast remotely. A bridge start command adds a second, more dangerous trigger path (stolen token = screaming phone). Only add if Splendor explicitly asks, with a separate confirmation step. |
-| D-04 | Bridge `GET /v1/log` export (download the event log)? | Useful for debugging, but it exfiltrates the log over the bridge. **Recommendation: v1.3, behind an explicit per-export confirm in the app.** |
-| D-05 | Raise `targetSdk`/`compileSdk` to 36? | **Recommendation: separate release, not v1.2.** The app runs on Android 16 at target 34 today. A target bump changes permission/foreground-service behaviour and deserves its own test round. |
-| D-06 | Automatic RAM killing (background sweep, no tap)? | **Recommendation: no — ever, without a proven verdict record.** A wrong auto-kill can kill the app Splendor is using. Keep kills manual in v1.2; revisit after a month of `WATCH`/`ROGUE` accuracy data. |
-| D-07 | Full per-app firewall (not just DNS)? | **Recommendation: not in v1.2.** It needs a TCP/UDP forwarding engine — an order of magnitude more code than the DNS-only pipe, and it would fight Tailscale for the VPN slot anyway. |
-| D-08 | DNS pipe vs Tailscale VPN-slot conflict | Both need the single VPN slot on the phone. **Recommendation: the UI reports the conflict and lets the user choose; the bridge keeps working either way.** A technical fix (DNS through Tailscale's own DNS settings) is a v1.3 investigation, not a v1.2 promise. |
-| D-09 | DoH/DoT (encrypted DNS upstream)? | Plain UDP to a chosen upstream in v1.2, stated in the UI. **Recommendation: v1.3** — encrypted upstream is real work (TLS in the pipe, cert handling) and must not delay v1.2. |
-| D-10 | Bridge poll interval (Muse-side cron)? | The app doesn't set it — Muse does. **Recommendation: 15 minutes** as the default cron, plus on-demand polls when Splendor asks. Shorter = fresher but more battery/radio wakeups on the phone; longer = staler. Splendor's call. |
-| D-11 | Blocklist source/updates | Bundled ~5,000-domain subset, no auto-update, in v1.2. **Recommendation: keep.** An auto-updating list needs a download source, a signature check, and a failure story — v1.3 at the earliest. |
+| D-01 | Cloud relay for true push — fund a server? | **Recommendation: no in v1.2.** Polling over Tailscale is free and private. A relay would cost money every month, need someone to run it, and put location/security events on a server. Revisit only if the poll delay actually hurts in practice. **Still NO in v1.3 — unchanged.** |
+| D-02 | TLS on the bridge? | Tailscale already encrypts the traffic; localhost needs none. **Recommendation: no in v1.2.** A self-signed cert adds trust prompts and failure modes for zero benefit on a tailnet-only server. **Still NO in v1.3 — unchanged.** |
+| D-03 | Remote `blast.start` via the bridge? | **Recommendation: do not add.** The SMS trigger already starts a blast remotely. A bridge start command adds a second, more dangerous trigger path (stolen token = screaming phone). Only add if Splendor explicitly asks, with a separate confirmation step. **Still NO in v1.3 — unchanged.** |
+| D-04 | Bridge `GET /v1/log` export (download the event log)? | **DONE in v1.3.** Behind an explicit per-export confirm in the app: single-use, 5-minute window, never persisted; the server logs every grant/deny/export. |
+| D-05 | Raise `targetSdk`/`compileSdk` to 36? | **Recommendation: separate release, not v1.2.** The app runs on Android 16 at target 34 today. A target bump changes permission/foreground-service behaviour and deserves its own test round. **Still NO in v1.3 — unchanged.** |
+| D-06 | Automatic RAM killing (background sweep, no tap)? | **Recommendation: no — ever, without a proven verdict record.** A wrong auto-kill can kill the app Splendor is using. Keep kills manual in v1.2; revisit after a month of `WATCH`/`ROGUE` accuracy data. **Still NO in v1.3 — Elimination mode is one tap by the user, never a background sweep.** |
+| D-07 | Full per-app firewall (not just DNS)? | **Recommendation: not in v1.2.** It needs a TCP/UDP forwarding engine — an order of magnitude more code than the DNS-only pipe, and it would fight Tailscale for the VPN slot anyway. **Still NO in v1.3 — unchanged.** |
+| D-08 | DNS pipe vs Tailscale VPN-slot conflict | Both need the single VPN slot on the phone. **Recommendation: the UI reports the conflict and lets the user choose; the bridge keeps working either way.** A technical fix (DNS through Tailscale's own DNS settings) is a v1.3 investigation, not a v1.2 promise. **SHIPPED in v1.3: the choice UI is in the DNS screen. Verdict of the investigation: running DNS through Tailscale is not feasible from the app** — Tailscale's resolver does not speak DoT, so Android Private DNS cannot connect while Tailscale's DNS is on, and the app cannot set Tailscale's DNS settings. The user chooses which holds the slot. |
+| D-09 | DoH/DoT (encrypted DNS upstream)? | Plain UDP to a chosen upstream in v1.2, stated in the UI. **Recommendation: v1.3** — encrypted upstream is real work (TLS in the pipe, cert handling) and must not delay v1.2. **OUT in v1.3 — next round.** Plain UDP to the chosen upstream is still the v1.3 scope; the Private DNS 1.1.1.1 fallback is the encrypted-DNS option that shipped instead. |
+| D-10 | Bridge poll interval (Muse-side cron)? | The app doesn't set it — Muse does. **Recommendation: 15 minutes** as the default cron, plus on-demand polls when Splendor asks. Shorter = fresher but more battery/radio wakeups on the phone; longer = staler. Splendor's call. **Noted for v1.3 — Muse-side, 15 minutes, unchanged.** |
+| D-11 | Blocklist source/updates | Bundled ~5,000-domain subset, no auto-update, in v1.2. **Recommendation: keep.** An auto-updating list needs a download source, a signature check, and a failure story — v1.3 at the earliest. **KEPT bundled in v1.3 — unchanged.** |
 | D-12 | DND "alarms only" vs "priority only" vs "total silence"? | v2 uses alarms-only for the blast force-off; the schedule re-apply uses the same. If Splendor wants total silence at night, that is a one-line change in `DndGuard` — his call. |
 
 ---

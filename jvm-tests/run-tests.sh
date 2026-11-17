@@ -1,14 +1,19 @@
 #!/bin/bash
-# Merged JVM test runner for Blast Buster v1.2 (DESIGN.md §7.1).
+# Merged JVM test runner for Blast Buster v1.3 (DESIGN.md §7.1).
 # Runs all three agents' suites against the merged tree:
 #   A (Agent A): BlastGate, DndSchedule, RamVerdict, EventLog,
-#      DndGuard, RamKiller/DndCulprit — target 90 checks.
+#      DndGuard, RamKiller/DndCulprit — 90 checks; plus v1.3
+#      DndEnforce, Elimination, RamList, NotifStore — 107 checks.
+#      Suite A total: 197 checks, 0 failures.
 #   B (Agent B): SignalGrade, DnsParser, Blocklist, DnsPipePackets,
-#      NetMode — target 174 checks passed, 3 skipped (environmental:
-#      the sandbox blocks Java UDP send; see DnsPipePacketsTest).
+#      NetMode — 174 checks passed, 3 skipped (environmental:
+#      the sandbox blocks Java UDP send; see DnsPipePacketsTest);
+#      plus v1.3 DnsFix, NetAdb — 64 checks. Suite B total:
+#      238 checks passed, 0 failures, 3 skipped.
 #   C (Agent C): MiniJson, BridgeHttp, BridgeAuthCore,
-#      BridgeCommands — target 65 checks.
-# Total target: 329 checks, 0 failures.
+#      BridgeCommands — 65 checks; plus v1.3 BridgeRebind,
+#      BridgeLogExport — 33 checks. Suite C total: 98 checks.
+# Total: 533 checks passed, 0 failures, 3 skipped (environmental).
 # Usage: bash jvm-tests/run-tests.sh   (from the repo root)
 # Exit code: 0 when every suite passes, 1 otherwise.
 set -u

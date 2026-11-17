@@ -12,6 +12,38 @@ import android.os.Process
 import com.splendor.blastbuster.Prefs
 import com.splendor.blastbuster.companion.CompanionModule
 import com.splendor.blastbuster.companion.EventLog
+import java.io.File
+
+/** Outcome of feeding one scan into [LowMemoryEpisode]. */
+enum class LowMemoryTransition { NONE, STARTED, ENDED }
+
+/**
+ * Pure once-per-episode low-memory tracker (JVM-tested). The threshold is
+ * the system's own low-memory threshold (ActivityManager.MemoryInfo.
+ * threshold, already captured in RamSnapshot.thresholdKb) — RamVerdict
+ * holds per-app PSS thresholds (400/250 MB) and has no free-RAM
+ * threshold, so no new number is invented here. [update] returns STARTED
+ * only when an episode begins and ENDED only when free RAM recovers
+ * above the threshold; scans inside an episode return NONE.
+ */
+class LowMemoryEpisode {
+    private var inEpisode = false
+    fun inEpisode(): Boolean = inEpisode
+    fun update(availKb: Long, thresholdKb: Long): LowMemoryTransition {
+        val low = thresholdKb > 0L && availKb < thresholdKb
+        return when {
+            low && !inEpisode -> {
+                inEpisode = true
+                LowMemoryTransition.STARTED
+            }
+            !low && inEpisode -> {
+                inEpisode = false
+                LowMemoryTransition.ENDED
+            }
+            else -> LowMemoryTransition.NONE
+        }
+    }
+}
 
 /**
  * RAM watch scanner (DESIGN.md §5.1). Every 60 s (and on demand from the
@@ -26,9 +58,27 @@ import com.splendor.blastbuster.companion.EventLog
  * prints, per process. The system-wide meminfo roll-up and cpuinfo stay
  * ADB-from-a-computer diagnostics; the RAM screen says so.
  *
- * `DUMP` is an experimental tier only (§3.4): this scanner is built
- * entirely on public APIs that need no grant, and no DUMP path is
- * claimed here.
+ * DUMP verdict (verified against the Android API docs, 2026-11-17):
+ * `getProcessMemoryInfo` returns other apps' PSS only when the caller
+ * holds DUMP (since Android 13) — but there is no public API that yields
+ * other apps' process IDs to feed it: `getRunningAppProcesses()` returns
+ * only this app's processes with or without DUMP, and /proc is
+ * hidepid=2. So DUMP unlocks no usable list here and no DUMP code path
+ * is wired; the screen lists recently-used apps from UsageStatsManager
+ * instead, with PSS marked unavailable. `dumpPackageState()` (DUMP-gated,
+ * package-name in, undocumented text out) is the one untested candidate
+ * and is NOT parsed here — that is an on-device verification item
+ * (DESIGN.md §7.2 D-09), not shipped speculation.
+ *
+ * Low-memory alerts: when free RAM (availMem) drops below the system's
+ * own low-memory threshold (MemoryInfo.threshold), one RAM_LOW event is
+ * logged per episode and the alert state is exposed in [statusJson] and
+ * on the RAM screen; the episode ends (and one RAM_LOW_RECOVERED is
+ * logged) when free RAM recovers above the threshold. No per-scan spam.
+ *
+ * Strictly-free RAM (MemFree from /proc/meminfo) is captured alongside
+ * availMem so the screen can show both figures with the one-line
+ * explanation that they measure different things.
  *
  * Logging discipline: a scan summary is logged at most once an hour, and
  * a ROGUE verdict is logged when a package first becomes ROGUE. Logging
@@ -51,6 +101,12 @@ class RamWatch : CompanionModule {
         private val sharedKnownRogues = HashSet<String>()
         private var sharedLastSummaryLogMs = 0L
         private val sharedLock = Any()
+
+        // One low-memory episode tracker, shared like the snapshot
+        // history: the service scanner and the RAM screen's one-shot
+        // scans feed the same episode, so RAM_LOW fires once per
+        // episode however the scan was triggered.
+        private val sharedLowMemoryEpisode = LowMemoryEpisode()
     }
 
     @Volatile
@@ -97,6 +153,9 @@ class RamWatch : CompanionModule {
     /** Latest snapshot, or null before the first scan. */
     fun latestSnapshot(): RamSnapshot? = sharedLatest
 
+    /** True while a low-memory episode is active (free RAM below threshold). */
+    fun lowMemoryAlertActive(): Boolean = sharedLowMemoryEpisode.inEpisode()
+
     /**
      * One-off scan without starting the 60 s timer (used by RamActivity).
      * Feeds the same shared history as the service scanner.
@@ -124,7 +183,7 @@ class RamWatch : CompanionModule {
 
     override fun statusJson(): String {
         val snap = sharedLatest
-        if (snap == null) return "{\"enabled\":true,\"scanned\":false}"
+        if (snap == null) return "{\"enabled\":true,\"scanned\":false,\"low_memory_alert\":false}"
         val top = snap.apps.firstOrNull()
         val topJson = if (top != null) {
             "{\"package\":\"${EventLog.jsonEscape(top.packageName)}\"," +
@@ -133,6 +192,9 @@ class RamWatch : CompanionModule {
         return "{\"enabled\":true,\"scanned\":true," +
             "\"total_mb\":${snap.totalKb / 1024}," +
             "\"avail_mb\":${snap.availKb / 1024}," +
+            "\"strictly_free_mb\":${snap.freeKb / 1024}," +
+            "\"low_memory_threshold_mb\":${snap.thresholdKb / 1024}," +
+            "\"low_memory_alert\":${sharedLowMemoryEpisode.inEpisode()}," +
             "\"free_percent\":${snap.freePercent()}," +
             "\"low_memory\":${snap.lowMemory}," +
             "\"rogue_count\":${snap.rogues().size}," +
@@ -231,6 +293,36 @@ class RamWatch : CompanionModule {
             )
         }
         entries.sortByDescending { it.pssKb }
+        // Recently-used apps (Usage Access): packages used in the last
+        // 24 h with no running process above — the list the PSS section
+        // cannot show, because getRunningAppProcesses() returns only
+        // this app. System apps and this app itself are excluded (they
+        // are not actionable here); PSS is unknown for these rows.
+        val runningPkgs = entries.map { it.packageName }.toSet()
+        val recent = ArrayList<RamAppEntry>()
+        if (usageGranted) {
+            val sortedUsage = usage.entries
+                .filter { (pkg, _) ->
+                    pkg !in runningPkgs && pkg != ctx.packageName && !isSystemApp(ctx, pkg)
+                }
+                .sortedByDescending { it.value.first }
+                .take(TOP_APPS)
+            for ((pkg, stats) in sortedUsage) {
+                recent.add(
+                    RamAppEntry(
+                        packageName = pkg,
+                        pssKb = 0L,
+                        foreground = false,
+                        systemApp = false,
+                        lastUsedMs = stats.first,
+                        foregroundTimeMs = stats.second,
+                        verdict = Verdict.OK,
+                        verdictReason = "No PSS — shown from Usage Access only; no verdict possible",
+                        pssKnown = false
+                    )
+                )
+            }
+        }
         return RamSnapshot(
             tsMs = System.currentTimeMillis(),
             totalKb = memInfo.totalMem / 1024L,
@@ -238,8 +330,21 @@ class RamWatch : CompanionModule {
             thresholdKb = memInfo.threshold / 1024L,
             lowMemory = memInfo.lowMemory,
             apps = entries.take(TOP_APPS),
-            usageAccessGranted = usageGranted
+            usageAccessGranted = usageGranted,
+            freeKb = readStrictlyFreeKb(),
+            recentApps = recent
         )
+    }
+
+    /** MemFree (strictly-free RAM, KB) from /proc/meminfo, 0 when unreadable. */
+    private fun readStrictlyFreeKb(): Long {
+        return try {
+            File("/proc/meminfo").readLines()
+                .firstOrNull { it.startsWith("MemFree:") }
+                ?.trim()?.split(Regex("\\s+"))?.getOrNull(1)?.toLongOrNull() ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     /** PSS change for [pkg] since 3 snapshots ago, null when unknown. */
@@ -257,6 +362,31 @@ class RamWatch : CompanionModule {
     private fun logScan(snap: RamSnapshot) {
         val ctx = appCtx ?: return
         val now = System.currentTimeMillis()
+        // Low-memory episode: one RAM_LOW when the episode starts, one
+        // RAM_LOW_RECOVERED when free RAM climbs back above the system
+        // threshold. Scans inside an episode log nothing.
+        when (sharedLowMemoryEpisode.update(snap.availKb, snap.thresholdKb)) {
+            LowMemoryTransition.STARTED -> EventLog.append(
+                ctx, "ram", "RAM_LOW",
+                "Low memory: ${snap.availKb / 1024} MB free, below the system " +
+                    "threshold of ${snap.thresholdKb / 1024} MB",
+                mapOf(
+                    "avail_mb" to "${snap.availKb / 1024}",
+                    "threshold_mb" to "${snap.thresholdKb / 1024}"
+                )
+            )
+            LowMemoryTransition.ENDED -> EventLog.append(
+                ctx, "ram", "RAM_LOW_RECOVERED",
+                "Memory recovered: ${snap.availKb / 1024} MB free, above the system " +
+                    "threshold of ${snap.thresholdKb / 1024} MB",
+                mapOf(
+                    "avail_mb" to "${snap.availKb / 1024}",
+                    "threshold_mb" to "${snap.thresholdKb / 1024}"
+                )
+            )
+            LowMemoryTransition.NONE -> {
+            }
+        }
         for (rogue in snap.rogues()) {
             if (sharedKnownRogues.add(rogue.packageName)) {
                 EventLog.append(

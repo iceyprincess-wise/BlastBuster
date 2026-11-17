@@ -3,6 +3,7 @@ package com.splendor.blastbuster.dns
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.provider.Settings
 import com.splendor.blastbuster.Prefs
 import com.splendor.blastbuster.companion.BlastGate
 import com.splendor.blastbuster.companion.CompanionModule
@@ -81,6 +82,16 @@ class DnsModule : CompanionModule {
         }
     }
 
+    /** Live Private DNS bypass check for the bridge status fragment. */
+    internal fun livePrivateDnsOn(ctx: Context): Boolean {
+        val mode = try {
+            Settings.Global.getString(ctx.contentResolver, "private_dns_mode")
+        } catch (_: Exception) {
+            null
+        }
+        return DnsState.bypassesPipe(DnsState.parsePrivateDnsMode(mode))
+    }
+
     /** JSON fragment for the bridge status (built with MiniJson, §4.2). */
     override fun statusJson(): String {
         val ctx = appCtx
@@ -90,7 +101,12 @@ class DnsModule : CompanionModule {
         fields["enabled"] = ctx?.let { Prefs.dnsEnabled(it) } ?: false
         fields["upstream"] = DnsVpnService.upstreamInUse
         fields["blocked_domains"] = DnsVpnService.blocklistBlockedCount
-        fields["private_dns_on"] = DnsVpnService.privateDnsOn
+        // Live Private DNS mode (v1.3): the service flag is only set at
+        // tunnel start, so read the setting here — the bridge must not
+        // report "private_dns_on: false" while the user turned Private
+        // DNS on after the pipe started.
+        fields["private_dns_on"] = ctx?.let { livePrivateDnsOn(it) }
+            ?: DnsVpnService.privateDnsOn
         fields["vpn_conflict"] = DnsVpnService.conflictWithVpn
         if (stats != null) {
             fields["queries_today"] = stats.queries
